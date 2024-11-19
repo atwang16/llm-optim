@@ -49,6 +49,9 @@ class Llama(nn.Module):
         self.tokenizer = Tokenizer(self.llama_tokenizer)
 
     def forward_llama(self, prompt, max_new_tokens=128, temperature=1.0, top_p=1.0, top_k=50, repetition_penalty=1.0, do_sample=True):
+        """
+        This method is for text generation, not llmoptim
+        """
         input_ids = self.llama_tokenizer(prompt, return_tensors="pt").input_ids.to("cuda")
         generated_ids = self.model.generate(
             input_ids,
@@ -82,7 +85,7 @@ if __name__ == "__main__":
 
     # prompts = ["""123,456,789,234,567,890,345,678,901,456,789,012,567,890,123,678,901,234,789,012,345,890,123,456,901,234,567,012,345,678,123,456,789,234,567,890,345,678,901,456,789,012,567,890,123,678,901,234,789,012,345,890,123,456,901,234,567,012,345,678,123,456,789,234,567,890,345,678,901,456,789,012,567,890,123,678,901,234,789,012,345,890,123,456,901,234,567,012,345,678,123,456,789,234,567,890,345,678,901,456,789,012,567,890,123,678,901,234,789,012,345,890,123,456,901,234,567,012,345,678,123,456,789,234,567,890,345,678,901,456,789,012,567,890,123,678,901,234,789,012,345,890,123,456,901,234,567,012,345,678"""]
 
-    prompts = np.array([[1.23, 4.56, 7.89, 2.34]])
+    prompts = [np.array([1.23, 4.56, 7.89, 2.34])]
 
     llama = Llama()
     for prompt in prompts:
