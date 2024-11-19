@@ -62,15 +62,33 @@ class Llama(nn.Module):
         )
         return (self.llama_tokenizer.decode(generated_ids[0][input_ids.shape[-1]:], skip_special_tokens=True, clean_up_tokenization_space=True), generated_ids)
 
+    def forward(self, prompt, max_new_tokens=128, temperature=1.0, top_p=1.0, top_k=50, repetition_penalty=1.0, do_sample=True):
+        input_ids = self.tokenizer(prompt, return_tensors="pt").input_ids.to("cuda")
+        generated_ids = self.model.generate(
+            input_ids,
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            top_k=top_k,
+            repetition_penalty=repetition_penalty,
+            do_sample=do_sample,
+            eos_token_id=self.tokenizer.eos_token_id,
+        )
+        return (self.tokenizer.decode(generated_ids[0][input_ids.shape[-1]:], skip_special_tokens=True, clean_up_tokenization_space=True), generated_ids)
+
 
 if __name__ == "__main__":
-    prompts = ["""123,456,789,234,567,890,345,678,901,456,789,012,567,890,123,678,901,234,789,012,345,890,123,456,901,234,567,012,345,678,123,456,789,234,567,890,345,678,901,456,789,012,567,890,123,678,901,234,789,012,345,890,123,456,901,234,567,012,345,678,123,456,789,234,567,890,345,678,901,456,789,012,567,890,123,678,901,234,789,012,345,890,123,456,901,234,567,012,345,678,123,456,789,234,567,890,345,678,901,456,789,012,567,890,123,678,901,234,789,012,345,890,123,456,901,234,567,012,345,678,123,456,789,234,567,890,345,678,901,456,789,012,567,890,123,678,901,234,789,012,345,890,123,456,901,234,567,012,345,678"""]
+    import numpy as np
+
+    # prompts = ["""123,456,789,234,567,890,345,678,901,456,789,012,567,890,123,678,901,234,789,012,345,890,123,456,901,234,567,012,345,678,123,456,789,234,567,890,345,678,901,456,789,012,567,890,123,678,901,234,789,012,345,890,123,456,901,234,567,012,345,678,123,456,789,234,567,890,345,678,901,456,789,012,567,890,123,678,901,234,789,012,345,890,123,456,901,234,567,012,345,678,123,456,789,234,567,890,345,678,901,456,789,012,567,890,123,678,901,234,789,012,345,890,123,456,901,234,567,012,345,678,123,456,789,234,567,890,345,678,901,456,789,012,567,890,123,678,901,234,789,012,345,890,123,456,901,234,567,012,345,678"""]
+
+    prompts = np.array([[1.23, 4.56, 7.89, 2.34]])
 
     llama = Llama()
     for prompt in prompts:
         import time
         start = time.time()
-        response, tokens = llama.forward_llama(prompt, max_new_tokens=1024, temperature=0.2)
+        response, tokens = llama.forward(prompt, max_new_tokens=1024, temperature=0.2)
         time_taken = time.time() - start
         print(f"Generated response: {response}")
         print(f"Response took {time_taken} seconds")
