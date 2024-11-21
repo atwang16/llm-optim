@@ -71,7 +71,7 @@ class HierarchyPDF:
         self, model: nn.Module, tokenizer, s_traj: str, kv_cache: HierarchyCache, mode: str = "neighbor"
     ) -> Self:
         """Implementation of algorithm 2 of llmICL to refine hierarchy PDF and replication of recursive_refiner() in
-        https://github.com/AntonioLiu97/llmICL/blob/master/models/ICL.py.errrr
+        https://github.com/AntonioLiu97/llmICL/blob/master/models/ICL.py
 
         :param s_traj: a string representing a sampled stochastic trajectory whose states are separated by commas
         :param kv_cache: key-value cache of running model.forward(S_traj)
@@ -80,7 +80,7 @@ class HierarchyPDF:
         inp = []
         for state in str_seq_to_int(s_traj):
             inp.append(state)
-            self._recursive_refine(model, tokenizer, True, inp, kv_cache, mode=mode)
+            self._recursive_refine(model, tokenizer, True, len(state), inp, kv_cache, mode=mode)
 
         return self
 
@@ -94,10 +94,10 @@ class HierarchyPDF:
         kv_cache: HierarchyCache,
         mode: str = "neighbor",
     ):
-        if self.n_levels == 0:
+        if refinement_depth == 0:
             return
 
-        curr_state = sequence[-self.n_levels]
+        curr_state = sequence[-refinement_depth]
 
         # is_main_branch because we have already calculated and cached these logits
         if is_main_branch:
@@ -124,7 +124,7 @@ class HierarchyPDF:
             # collect refined logits
             new_logits, kv_cache_new = self._next_token_probs(model, tokenizer, sequence, kv_cache)
             last_digit_pdf = HierarchyPDF.from_sample(sequence, new_logits)
-            self.update(last_digit_pdf)
+            self.define_branch(sequence[-1], last_digit_pdf)
 
             if refinement_depth > 1:
                 l_new = [[*sequence, i] for i in range(self.n_states)]  # form 10 new sequences by appending digits
@@ -163,17 +163,17 @@ class HierarchyPDF:
         probs = torch.nn.functional.softmax(logit_mat[0, -1, good_tokens].clone().cpu(), dim=0).numpy()
         return (probs, kv_cache_new)
 
-        return logits
-
     def update(self, pdf: Self) -> Self:
         if self.prob is None:
             self.prob = pdf.prob
         elif pdf.prob is None:
             pass
         else:  # neither is None
-            pass
-
-        # recursive
+            for i in range(self.n_states):
+                if self.states[i] is None:
+                    self.states[i] = pdf.states[i]
+                else:
+                    self.states[i].update(pdf.states[i])
 
     def define_branch(self, branch: int, pdf: Self) -> Self:
         assert self.states[branch] is None
