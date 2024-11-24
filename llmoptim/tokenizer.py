@@ -28,6 +28,7 @@ class Tokenizer:
         data = self._rescale(data)
         data = np.round(data, self.n_digits - 1)
         data_string = self._to_string(data)
-        data_tensor = torch.tensor([self.tokenizer(data_string[i], return_tensors=return_tensors).input_ids[0][1] for i in range(len(data_string))], dtype=torch.long)
-        data_tensor = torch.cat([torch.tensor([self.tokenizer.bos_token_id], dtype=torch.long), data_tensor], dim=0)
+        # data_tensor = torch.tensor([self.tokenizer(data_string[i], return_tensors=return_tensors).input_ids[0][1] for i in range(len(data_string))], dtype=torch.long)
+        # data_tensor = torch.cat([torch.tensor([self.tokenizer.bos_token_id], dtype=torch.long), data_tensor], dim=0)
+        data_tensor = self.tokenizer(data_string, return_tensors=return_tensors).input_ids[0]
         return BatchEncoding({"input_ids": data_tensor.unsqueeze(0), "attention_mask": torch.ones_like(data_tensor).unsqueeze(0)})
