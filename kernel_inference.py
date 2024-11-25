@@ -26,11 +26,13 @@ def get_pdf(sequence, llama, good_tokens, output_dir=None):
 
 def get_kernel(pdf, output_dir=None):
     # Get kernel
-    # If output_dir is not None, save kernel into npy
+    # If output_dir is not None, save kernel into npz
+    pdf = param_dict["pdf"]
     P = pdf.probs  # TODO: Probably wrong, fix once HierarchyPDF is finished
     kernel = fill_rows(P)
-    np.save(output_dir, kernel)
-    pass
+    if output_dir is not None:
+        np.savez(output_dir, kernel=kernel, init_min=param_dict["init_min"], init_max=param_dict["init_max"])
+    return kernel
 
 
 def load_dummy(pkl_path):
@@ -63,17 +65,17 @@ if __name__ == "__main__":
         # Abtraction for easy parallelization
         # output_dir = f"{args.output_dir}/pdf/{param_name}.npy"
         pdf = get_pdf(param_seq, llama, good_tokens, output_dir=None)
-        pdf_dict[param_name] = pdf
+        pdf_dict[param_name] = {"pdf": pdf, "init_min:": param_seq.min(), "init_max": param_seq.max()}
 
     # TODO: Add .get() loop if parallelized to populate pdf_dict
 
     # Calculate kernels
     kernels_dict = {}
     # TODO: parallelize??
-    for param_name, pdf in pdf_dict.items():
+    for param_name, param_dict in pdf_dict.items():
         # Abstraction for easy parallelization
         # output_dir = f"{args.output_dir}/kernel/{param_name}.npy"
-        kernel = get_kernel(pdf, output_dir=None)
+        kernel = get_kernel(param_dict, output_dir=None)
         kernels_dict[param_name] = kernel
 
     # TODO: Add .get() loop if parallelized to populate kernels_dict
