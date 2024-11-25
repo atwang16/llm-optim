@@ -13,7 +13,7 @@ def load_ckpts_into_seq(ckpts_path):
     # Loads checkpoints and constructs sequence for each parameter
     # Returns a dict {"{param_name}": np.ndarray({n_ckpts}), ...},
     # where n_ckpts practically is time series length we provide as an input
-    # remember to account for param_name being actually {layer_name}_{param_index}
+    # remember to account for param_name being actually {layer_name}_{param_flattened_index}
     # TODO
     pass
 
