@@ -1,19 +1,20 @@
 import argparse
+import os
+from glob import glob
 
 import numpy as np
 import torch
 from llmoptim.tokenizer import Tokenizer
 from tqdm import tqdm
-from glob import glob
-import os
+
+tokenizer = Tokenizer(None)
 
 
 def param_to_state(param_val, init_min, init_max):
-    tokenizer = Tokenizer(None)
     data = np.array([param_val, init_min, init_max])
     data = tokenizer._rescale(data)
     data = np.round(data, tokenizer.n_digits - 1)
-    state = np.zeros(len(data), dtype=float)
+    state = np.zeros(1000, dtype=float)
     state[data[0]] = 1
     return state
 
@@ -37,16 +38,38 @@ def load_kernels(kernels_dir):
     return kernels_dict
 
 
-def apply_kernel(kernels_dict, state_mat)
+def apply_kernel(kernels_dict, state_mat):
     pass
 
 
-def state_mat_to_param(state_mat, kernels_dict):
-    pass
+def state_mat_to_param(state_mat, kernels_dict, model_state_dict):
+    # TODO: debug
+    params_mat = model_state_dict.clone()
+    counter = 0
+    for key in model_state_dict.keys():
+        for i, param in enumerate(model_state_dict[key].flatten()):
+            # i is flattened index
+            # j1, j2 are indices in the original shape
+            j1 = i // model_state_dict[key].shape[1]
+            j2 = i % model_state_dict[key].shape[1]
+            params_mat[key][j1][j2] = state_to_param(state_mat[:, counter], kernels_dict[f"{key}_{i}"]["init_min"], kernels_dict[f"{key}_{i}"]["init_max"])
+            counter += 1
+    return params_mat
 
 
 def load_params(model_state_dict, kernels_dict):
-    pass
+    # TODO: debug
+    params_size = 0
+    for key in model_state_dict.keys():
+        params_size += model_state_dict[key].flatten().shape[0]
+    state_mat = np.zeros((1000, params_size), dtype=float)
+    counter = 0
+    for key in model_state_dict.keys():
+        for i, param in enumerate(model_state_dict[key].flatten()):
+            state = param_to_state(param, kernels_dict[f"{key}_{i}"]["init_min"], kernels_dict[f"{key}_{i}"]["init_max"])
+            state_mat[:, counter] = state
+            counter += 1
+    return state_mat
 
 
 if __name__ == "__main__":
@@ -77,5 +100,5 @@ if __name__ == "__main__":
         # Save checkpoint
         # model.load_state_dict(param_dict)
         # torch.save({"model_state_dict": model.state_dict()}, f"{args.output_dir}/ckpt_{i}.pt")
-        # metrics = model.eval()
-        # np.save(f"{args.output_dir}/metrics_{i}.npy", metrics)
+        # metrics = model.get_metrics()
+        # np.savez(f"{args.output_dir}/metrics_{i}.npz", metrics)
