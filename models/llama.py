@@ -147,20 +147,16 @@ class Llama(nn.Module):
             ),
         )
 
-    def forward_probs(self, prompt, good_tokens, kv_cache=None, use_cache=False):
+    def forward_probs(self, prompt, good_tokens, kv_cache: HierarchyCache = None, use_cache=False):
         input_ids = self.tokenizer(prompt, return_tensors="pt").input_ids.to("cuda")
         with torch.no_grad():
             out = self.model(
                 input_ids,
                 use_cache=use_cache,
-                past_key_values=(
-                    tuple(tuple(x.cuda() for x in sub_tuple) for sub_tuple in kv_cache)
-                    if kv_cache is not None and use_cache
-                    else None
-                ),
+                past_key_values=kv_cache.cuda().to_tuple() if kv_cache is not None and use_cache else None,
             )
         logit_mat = out["logits"]
-        kv_cache = out["past_key_values"]
+        kv_cache = HierarchyCache(out["past_key_values"]).cpu()
         probs = torch.nn.functional.softmax(
             logit_mat[0, -1, good_tokens].clone().cpu().to(torch.float32), dim=0
         ).numpy()

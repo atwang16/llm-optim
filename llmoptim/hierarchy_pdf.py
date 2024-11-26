@@ -67,9 +67,7 @@ class HierarchyPDF:
     def is_leaf(self) -> bool:
         return self.n_levels == 1
 
-    def refine(
-        self, model: nn.Module, tokenizer, s_traj: str, kv_cache: HierarchyCache, mode: str = "neighbor"
-    ) -> Self:
+    def refine(self, model: nn.Module, s_traj: str, kv_cache: HierarchyCache, mode: str = "neighbor") -> Self:
         """Implementation of algorithm 2 of llmICL to refine hierarchy PDF and replication of recursive_refiner() in
         https://github.com/AntonioLiu97/llmICL/blob/master/models/ICL.py
 
@@ -80,14 +78,13 @@ class HierarchyPDF:
         inp = []
         for state in str_seq_to_int(s_traj):
             inp.append(state)
-            self._recursive_refine(model, tokenizer, True, len(state), inp, kv_cache, mode=mode)
+            self._recursive_refine(model, True, len(state), inp, kv_cache, mode=mode)
 
         return self
 
     def _recursive_refine(
         self,
         model: nn.Module,
-        tokenizer,
         is_main_branch: bool,
         refinement_depth: int,
         sequence: list[list[int]],
@@ -115,60 +112,41 @@ class HierarchyPDF:
                 if refinement_depth > 1:
                     trimmed_kv_cache = kv_cache.trim(-refinement_depth + 1)
                 new_sequence = [*sequence[:-refinement_depth], new_state]
-                self._recursive_refine(
-                    model, tokenizer, False, refinement_depth, new_sequence, trimmed_kv_cache, mode=mode
-                )
+                self._recursive_refine(model, False, refinement_depth, new_sequence, trimmed_kv_cache, mode=mode)
 
             # iterate at next level
             if refinement_depth > 1:  # recurse to refine down another level
                 pdf: HierarchyPDF = self.states[curr_state]
-                pdf._recursive_refine(model, tokenizer, True, refinement_depth - 1, sequence, kv_cache, mode=mode)
+                pdf._recursive_refine(model, True, refinement_depth - 1, sequence, kv_cache, mode=mode)
 
         else:
             # collect refined logits
-            new_logits, kv_cache_new = self._next_token_probs(model, tokenizer, sequence, kv_cache)
+            new_logits, kv_cache_new = self._next_token_probs(model, sequence, kv_cache)
             last_digit_pdf = HierarchyPDF.from_sample(sequence, new_logits)
             self.define_branch(sequence[-1], last_digit_pdf)
 
             if refinement_depth > 1:
                 l_new = [[*sequence, i] for i in range(self.n_states)]  # form 10 new sequences by appending digits
                 for new_sequence, pdf in zip(l_new, self.states):
-                    pdf._recursive_refine(
-                        model, tokenizer, False, refinement_depth - 1, new_sequence, kv_cache_new, mode=mode
-                    )
+                    pdf._recursive_refine(model, False, refinement_depth - 1, new_sequence, kv_cache_new, mode=mode)
 
     def _next_token_probs(
         self,
-        model: nn.Module,
-        tokenizer,
+        model,
         states: list[list[int]],
         kv_cache: HierarchyCache,
         good_tokens: list = None,
-        load_cache_to_cpu: bool = False,
-    ) -> np.ndarray:
+    ) -> tuple[np.ndarray, HierarchyCache]:
         """Calculate the probability of the next token given the current state.
 
         :param state: a list of integers representing the current state
         :param kv_cache: key-value cache of running model.forward(S_traj)
         """
         s_traj = int_seq_to_str(states)
-        batch = tokenizer([s_traj], return_tensors="pt", add_special_tokens=True)
 
-        if kv_cache is None or kv_cache.is_empty:
-            with torch.no_grad():
-                out = model(batch["input_ids"].cuda(), use_cache=True)
-        else:
-            if load_cache_to_cpu:
-                kv_cache.cuda()
-            with torch.no_grad():
-                out = model(batch["input_ids"][:, -1:].cuda(), use_cache=True, past_key_values=kv_cache.to_tuple())
+        with torch.no_grad():
+            probs, kv_cache_new, _ = model.forward_probs(s_traj, good_tokens, kv_cache=kv_cache, use_cache=True)
 
-        logit_mat = out["logits"]
-        kv_cache_new = HierarchyCache(out["past_key_values"])
-        if load_cache_to_cpu:
-            kv_cache_new = HierarchyCache(out["past_key_values"]).cpu()
-        
-        probs = torch.nn.functional.softmax(logit_mat[0, -1, good_tokens].clone().cpu(), dim=0).numpy()
         return probs, kv_cache_new
 
     def update(self, pdf: Self) -> Self:
