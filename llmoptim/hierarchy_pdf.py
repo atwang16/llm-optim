@@ -1,4 +1,4 @@
-from typing import Self
+from copy import deepcopy
 
 import numpy as np
 import torch
@@ -20,7 +20,7 @@ class HierarchyCache:
     def is_empty(self) -> bool:
         return self.past_key_values is None
 
-    def trim(self, length: int, inplace: bool = False) -> Self:
+    def trim(self, length: int, inplace: bool = False) -> "HierarchyCache":
         trimmed_past_key_values = []
         for layer_past in self.past_key_values:
             key_states, value_states = layer_past
@@ -32,14 +32,14 @@ class HierarchyCache:
             return self
         return HierarchyCache(tuple(trimmed_past_key_values))
 
-    def to(self, device: str) -> Self:
+    def to(self, device: str) -> "HierarchyCache":
         self.past_key_values = tuple(tuple(x.to(device) for x in sub_tuple) for sub_tuple in self.past_key_values)
         return self
 
-    def cuda(self) -> Self:
+    def cuda(self) -> "HierarchyCache":
         return self.to("cuda")
 
-    def cpu(self) -> Self:
+    def cpu(self) -> "HierarchyCache":
         return self.to("cpu")
 
     def to_tuple(self) -> tuple[tuple[torch.Tensor, torch.Tensor], ...]:
@@ -67,7 +67,15 @@ class HierarchyPDF:
     def is_leaf(self) -> bool:
         return self.n_levels == 1
 
-    def refine(self, model: nn.Module, s_traj: str, kv_cache: HierarchyCache, mode: str = "neighbor") -> Self:
+    def refine(
+        self,
+        model: nn.Module,
+        s_traj: str,
+        kv_cache: HierarchyCache,
+        mode: str = "neighbor",
+        refinement_depth: int = None,
+        good_tokens: list[int] = None,
+    ) -> "HierarchyPDF":
         """Implementation of algorithm 2 of llmICL to refine hierarchy PDF and replication of recursive_refiner() in
         https://github.com/AntonioLiu97/llmICL/blob/master/models/ICL.py
 
@@ -78,7 +86,9 @@ class HierarchyPDF:
         inp = []
         for state in str_seq_to_int(s_traj):
             inp.append(state)
-            self._recursive_refine(model, True, len(state), inp, kv_cache, mode=mode)
+            if refinement_depth is None:
+                refinement_depth = len(state)
+            self._recursive_refine(model, True, 0, refinement_depth, inp, kv_cache, mode=mode, good_tokens=good_tokens)
 
         return self
 
@@ -86,18 +96,32 @@ class HierarchyPDF:
         self,
         model: nn.Module,
         is_main_branch: bool,
+        current_pos: int,
         refinement_depth: int,
         sequence: list[list[int]],
         kv_cache: HierarchyCache,
         mode: str = "neighbor",
+        good_tokens: list[int] = None,
     ):
-        if refinement_depth == 0:
-            return
+        """_summary_
 
-        curr_state = sequence[-refinement_depth]
+        :param model: _description_
+        :param is_main_branch: _description_
+        :param current_pos: index into last number in sequence
+        :param refinement_depth: _description_
+        :param sequence: _description_
+        :param kv_cache: _description_
+        :param mode: _description_, defaults to "neighbor"
+        :param good_tokens: _description_, defaults to None
+        :raises ValueError: _description_
+        """
+        if current_pos == refinement_depth:
+            return
 
         # is_main_branch because we have already calculated and cached these logits
         if is_main_branch:
+            curr_state = sequence[-1][current_pos]
+
             # refine neighboring states at current level
             if mode == "neighbor":
                 new_states = [ns for ns in [curr_state - 1, curr_state + 1] if ns >= 0 and ns < self.n_states]
@@ -109,33 +133,69 @@ class HierarchyPDF:
                 raise ValueError(f"Invalid mode. Expected 'neighbor' or 'all', but got: {mode}")
 
             for new_state in new_states:
-                if refinement_depth > 1:
-                    trimmed_kv_cache = kv_cache.trim(-refinement_depth + 1)
-                new_sequence = [*sequence[:-refinement_depth], new_state]
-                self._recursive_refine(model, False, refinement_depth, new_sequence, trimmed_kv_cache, mode=mode)
+                trimmed_kv_cache = (
+                    kv_cache.trim(current_pos - len(sequence[-1]) + 1)
+                    if current_pos < len(sequence[-1]) - 1
+                    else kv_cache
+                )
+                trimmed_sequence = deepcopy(sequence)
+                trimmed_sequence[-1] = trimmed_sequence[-1][:current_pos]
+                trimmed_sequence[-1].append(new_state)
+                self._recursive_refine(
+                    model,
+                    False,
+                    current_pos,
+                    refinement_depth,
+                    trimmed_sequence,
+                    trimmed_kv_cache,
+                    mode=mode,
+                    good_tokens=good_tokens,
+                )
 
             # iterate at next level
-            if refinement_depth > 1:  # recurse to refine down another level
+            if current_pos < refinement_depth - 1:  # recurse to refine down another level
                 pdf: HierarchyPDF = self.states[curr_state]
-                pdf._recursive_refine(model, True, refinement_depth - 1, sequence, kv_cache, mode=mode)
+                pdf._recursive_refine(
+                    model,
+                    True,
+                    current_pos + 1,
+                    refinement_depth,
+                    sequence,
+                    kv_cache,
+                    mode=mode,
+                    good_tokens=good_tokens,
+                )
 
         else:
             # collect refined logits
-            new_logits, kv_cache_new = self._next_token_probs(model, sequence, kv_cache)
-            last_digit_pdf = HierarchyPDF.from_sample(sequence, new_logits)
-            self.define_branch(sequence[-1], last_digit_pdf)
+            new_logits, kv_cache_new = self._next_token_probs(model, sequence, kv_cache, good_tokens=good_tokens)
+            last_digit_pdf = HierarchyPDF.from_sample(sequence[-1], new_logits[0, : len(sequence[-1])])
+            self.update(last_digit_pdf)
 
-            if refinement_depth > 1:
-                l_new = [[*sequence, i] for i in range(self.n_states)]  # form 10 new sequences by appending digits
-                for new_sequence, pdf in zip(l_new, self.states):
-                    pdf._recursive_refine(model, False, refinement_depth - 1, new_sequence, kv_cache_new, mode=mode)
+            if current_pos < refinement_depth - 1:
+                for i, pdf in enumerate(self.states):
+                    if pdf is None:
+                        self.states[i] = HierarchyPDF(True, self.n_states)
+                        pdf = self.states[i]
+                    new_sequence = deepcopy(sequence)
+                    new_sequence[-1].append(i)
+                    pdf._recursive_refine(
+                        model,
+                        False,
+                        current_pos + 1,
+                        refinement_depth,
+                        new_sequence,
+                        kv_cache_new,
+                        mode=mode,
+                        good_tokens=good_tokens,
+                    )
 
     def _next_token_probs(
         self,
         model,
         states: list[list[int]],
         kv_cache: HierarchyCache,
-        good_tokens: list = None,
+        good_tokens: list[int] = None,
     ) -> tuple[np.ndarray, HierarchyCache]:
         """Calculate the probability of the next token given the current state.
 
@@ -149,7 +209,7 @@ class HierarchyPDF:
 
         return probs, kv_cache_new
 
-    def update(self, pdf: Self) -> Self:
+    def update(self, pdf: "HierarchyPDF") -> "HierarchyPDF":
         if self.prob is None:
             self.prob = pdf.prob
         elif pdf.prob is None:
@@ -158,19 +218,19 @@ class HierarchyPDF:
             for i in range(self.n_states):
                 if self.states[i] is None:
                     self.states[i] = pdf.states[i]
-                else:
+                elif pdf.states[i] is not None:
                     self.states[i].update(pdf.states[i])
 
-    def define_branch(self, branch: int, pdf: Self) -> Self:
+    def define_branch(self, branch: int, pdf: "HierarchyPDF") -> "HierarchyPDF":
         assert self.states[branch] is None
         self.states[branch] = pdf
 
     @classmethod
-    def from_sample(cls, digits: list[int], probs: np.ndarray) -> Self:
+    def from_sample(cls, digits: list[int], probs: np.ndarray) -> "HierarchyPDF":
         assert len(digits) == probs.shape[0]
         prob = probs[0, :]
 
-        pdf = HierarchyPDF(True, probs.shape[1], init_prob=prob)
+        pdf = HierarchyPDF(True, prob.shape[0], init_prob=prob)
         if len(digits) > 1:
             pdf.define_branch(digits[0], cls.from_sample(digits[1:], probs[1:, :]))
 

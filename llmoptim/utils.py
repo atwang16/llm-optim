@@ -8,8 +8,8 @@ def str_seq_to_int(s_traj: str) -> list[list[int]]:
     return out
 
 
-def int_seq_to_str(states: list[list[int]], delim=" ") -> str:
-    return " , ".join([" ".join([str(s) for s in state]) for state in states])
+def int_seq_to_str(states: list[list[int]]) -> str:
+    return ",".join(["".join([str(s) for s in state]) for state in states]) + ","
 
 
 def int_to_list_int(num: int) -> list[int]:

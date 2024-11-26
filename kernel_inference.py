@@ -31,21 +31,28 @@ def get_pdf(sequence: np.ndarray, llama: Llama, good_tokens: str, output_file: s
     # Get HierarchyPDF
     # If output_dir is not None, save probs into npy (this way we can split jobs for even more distributed computing)
     # build sequence string
-    sequence_str = ",".join(sequence) + ","
+    sequence_str = ",".join([str(num) for num in sequence]) + ","
     delimiters = []
-    for i, seq in enumerate(sequence):
-        delimiters.append(len(seq))
+    start_idx = 0
+    for seq in sequence:
+        delimiters.append(start_idx + len(str(seq)))
+        start_idx += len(str(seq)) + 1
 
-    probs, kv_cache, _ = llama.forward_probs(sequence_str, good_tokens, use_cache=False)
+    probs, kv_cache, _ = llama.forward_probs(sequence_str, good_tokens, use_cache=True)
 
     start_idx = 0
     pdf_list = []
-    for num, delim_idx in zip(sequence, delimiters):
+    for num, delim_idx in tqdm(zip(sequence, delimiters), total=len(sequence)):
         pdf = HierarchyPDF.from_sample(int_to_list_int(num), probs[0, start_idx:delim_idx])
-        rel_idx_from_end = delim_idx - len(sequence_str)
+        rel_idx_from_end = delim_idx - len(sequence)
         kv_cache_trimmed = kv_cache.trim(rel_idx_from_end)
         pdf.refine(
-            llama, s_traj=sequence_str[:delim_idx], kv_cache=kv_cache_trimmed, good_tokens=good_tokens, mode="neighbor"
+            llama,
+            s_traj=sequence_str[:delim_idx],
+            refinement_depth=1,
+            kv_cache=kv_cache_trimmed,
+            good_tokens=good_tokens,
+            mode="neighbor",
         )
         pdf_list.append(pdf)
 
@@ -79,10 +86,10 @@ def load_dummy(pkl_path):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--ckpts_path", type=str, required=True, help="Path to directory containing the checkpoints")
+    parser.add_argument("--ckpts_path", type=str, required=False, help="Path to directory containing the checkpoints")
     parser.add_argument("--llama_v", choices=[2, 3], type=int, required=True, help="Version of Llama model")
     parser.add_argument(
-        "--output_dir", type=str, required=True, help="Path to directory to save inferred PDFs and kernels"
+        "--output_dir", type=str, required=False, help="Path to directory to save inferred PDFs and kernels"
     )
     args = parser.parse_args()
 
@@ -100,18 +107,20 @@ if __name__ == "__main__":
     for param_name, param_seq in sequences.items():
         # Abstraction for easy parallelization
         # output_dir = f"{args.output_dir}/pdf/{param_name}.npy"
-        pdf = get_pdf(param_seq, llama, good_tokens, output_dir=None)
+        param_seq = np.round(param_seq * 100).astype(int)
+
+        pdf = get_pdf(param_seq, llama, good_tokens, output_file=None)
         pdf_dict[param_name] = {"pdf": pdf, "init_min:": param_seq.min(), "init_max": param_seq.max()}
 
     # TODO: Add .get() loop if parallelized to populate pdf_dict
 
-    # Calculate kernels
-    kernels_dict = {}
-    # TODO: parallelize??
-    for param_name, param_dict in pdf_dict.items():
-        # Abstraction for easy parallelization
-        # output_dir = f"{args.output_dir}/kernel/{param_name}.npy"
-        kernel = get_kernel(param_dict, output_dir=None)
-        kernels_dict[param_name] = kernel
+    # # Calculate kernels
+    # kernels_dict = {}
+    # # TODO: parallelize??
+    # for param_name, param_dict in pdf_dict.items():
+    #     # Abstraction for easy parallelization
+    #     # output_dir = f"{args.output_dir}/kernel/{param_name}.npy"
+    #     kernel = get_kernel(param_dict, output_dir=None)
+    #     kernels_dict[param_name] = kernel
 
-    # TODO: Add .get() loop if parallelized to populate kernels_dict
+    # # TODO: Add .get() loop if parallelized to populate kernels_dict

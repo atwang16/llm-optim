@@ -116,7 +116,9 @@ class Llama(nn.Module):
             generated_ids,
         )
 
-    def forward_state(self, prompt, good_tokens, state_len, temperature=1.0, kv_cache=None, use_cache=False):
+    def forward_state(
+        self, prompt, good_tokens, state_len, temperature=1.0, kv_cache: HierarchyCache = None, use_cache: bool = False
+    ):
         input_ids = self.tokenizer(prompt, return_tensors="pt").input_ids.to("cuda")
         new_state = ""
         for _ in range(state_len):
@@ -124,16 +126,12 @@ class Llama(nn.Module):
                 out = self.model(
                     input_ids,
                     use_cache=use_cache,
-                    past_key_values=(
-                        tuple(tuple(x.cuda() for x in sub_tuple) for sub_tuple in kv_cache)
-                        if kv_cache is not None and use_cache
-                        else None
-                    ),
+                    past_key_values=kv_cache.cuda().to_tuple() if kv_cache is not None and use_cache else None,
                 )
             logit_mat = out["logits"]
             kv_cache = out["past_key_values"] if kv_cache is not None and use_cache else None
             probs = torch.nn.functional.softmax(
-                logit_mat[0, -1, good_tokens].clone().cpu().to(torch.float32), dim=0
+                logit_mat[:, 1:, good_tokens].clone().cpu().to(torch.float32), dim=-1
             ).numpy()
             next_token = good_tokens[np.argmax(probs)]
             new_state += self.tokenizer.decode([next_token])[0]
@@ -147,8 +145,8 @@ class Llama(nn.Module):
             ),
         )
 
-    def forward_probs(self, prompt, good_tokens, kv_cache: HierarchyCache = None, use_cache=False):
-        input_ids = self.tokenizer(prompt, return_tensors="pt").input_ids.to("cuda")
+    def forward_probs(self, prompt, good_tokens, kv_cache: HierarchyCache = None, use_cache=True):
+        input_ids = self.tokenizer(prompt, return_tensors="pt", rescale=False).input_ids.to("cuda")
         with torch.no_grad():
             out = self.model(
                 input_ids,
@@ -158,7 +156,7 @@ class Llama(nn.Module):
         logit_mat = out["logits"]
         kv_cache = HierarchyCache(out["past_key_values"]).cpu()
         probs = torch.nn.functional.softmax(
-            logit_mat[0, -1, good_tokens].clone().cpu().to(torch.float32), dim=0
+            logit_mat[:, 1:-1, good_tokens].clone().cpu().to(torch.float32), dim=-1
         ).numpy()
         good_logits = logit_mat[0, -1, good_tokens].clone().cpu().to(torch.float32).numpy()
         return probs, kv_cache, good_logits
