@@ -57,7 +57,7 @@ def get_pdf(sequence: np.ndarray, llama: Llama, good_tokens: str, output_file: s
         pdf.refine(
             llama,
             s_traj=sequence_str[:delim_idx],
-            refinement_depth=3,
+            refinement_depth=1,
             kv_cache=kv_cache_trimmed,
             good_tokens=good_tokens,
             mode="neighbor",
