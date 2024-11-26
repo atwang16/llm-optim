@@ -1,12 +1,13 @@
 import argparse
 import pickle
+from glob import glob
 
 import numpy as np
 import torch
 from llmoptim.hierarchy_pdf import HierarchyCache, HierarchyPDF
 from llmoptim.kernel import fill_rows
 from llmoptim.tokenizer import Tokenizer
-from llmoptim.utils import int_to_list_int
+from llmoptim.utils import int_to_list_int, str_seq_to_int
 from models.llama import Llama
 from tqdm import tqdm
 
@@ -16,7 +17,8 @@ def load_ckpts_into_seq(ckpts_path):
     # Returns a dict {"{param_name}": np.ndarray({n_ckpts}), ...},
     # where n_ckpts practically is time series length we provide as an input
     # remember to account for param_name being actually {layer_name}_{param_flattened_index}
-    model_state_dicts = [torch.load(ckpt_path) for ckpt_path in sorted(ckpts_path)]
+    print("DEBUG< LOADING 5 CHECKPOINT ONLY !!!!!!!!\n\n\n\n")
+    model_state_dicts = [torch.load(ckpt_path) for ckpt_path in sorted(glob(f"{ckpts_path}/*")[:5])]
     param_specs = [(param_name, param_mat.size()) for param_name, param_mat in model_state_dicts[0].items()]
     sequences = {}
     for param_spec in param_specs:
@@ -28,7 +30,6 @@ def load_ckpts_into_seq(ckpts_path):
                 param_seq[j] = model_state_dict[param_name].flatten()[i]
             sequences[f"{param_name}_{i}"] = param_seq
     return sequences
-            
 
 
 def get_pdf(sequence: np.ndarray, llama: Llama, good_tokens: str, output_file: str = None):
@@ -42,25 +43,21 @@ def get_pdf(sequence: np.ndarray, llama: Llama, good_tokens: str, output_file: s
     # Get HierarchyPDF
     # If output_dir is not None, save probs into npy (this way we can split jobs for even more distributed computing)
     # build sequence string
-    sequence_str = ",".join([str(num) for num in sequence]) + ","
-    delimiters = []
-    start_idx = 0
-    for seq in sequence:
-        delimiters.append(start_idx + len(str(seq)))
-        start_idx += len(str(seq)) + 1
+    sequence = llama.tokenizer._rescale(sequence)
+    sequence_str = llama.tokenizer._to_string(sequence)
+    delimiters = [i for i, char in enumerate(sequence_str) if char == ","]
 
     probs, kv_cache, _ = llama.forward_probs(sequence_str, good_tokens, use_cache=True)
-
     start_idx = 0
     pdf_list = []
-    for num, delim_idx in tqdm(zip(sequence, delimiters), total=len(sequence)):
-        pdf = HierarchyPDF.from_sample(int_to_list_int(num), probs[0, start_idx:delim_idx])
+    for num_list, delim_idx in tqdm(zip(str_seq_to_int(sequence_str), delimiters), total=len(sequence)):
+        pdf = HierarchyPDF.from_sample(num_list, probs[0, start_idx:delim_idx])
         rel_idx_from_end = delim_idx - len(sequence)
         kv_cache_trimmed = kv_cache.trim(rel_idx_from_end)
         pdf.refine(
             llama,
             s_traj=sequence_str[:delim_idx],
-            refinement_depth=1,
+            refinement_depth=3,
             kv_cache=kv_cache_trimmed,
             good_tokens=good_tokens,
             mode="neighbor",
@@ -104,9 +101,7 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    # Load dummy for now
-    # sequences = load_ckpts_into_seq(args.ckpts_path)
-    sequences = load_dummy("tmp/brownian_motion_0.pkl")
+    sequences = load_ckpts_into_seq(args.ckpts_path)
 
     llama = Llama(llama_v=args.llama_v)
     good_tokens_str = list("0123456789")
@@ -118,9 +113,12 @@ if __name__ == "__main__":
     for param_name, param_seq in sequences.items():
         # Abstraction for easy parallelization
         # output_dir = f"{args.output_dir}/pdf/{param_name}.npy"
-        param_seq = np.round(param_seq * 100).astype(int)
 
+        import time
+        start = time.time()
         pdf = get_pdf(param_seq, llama, good_tokens, output_file=None)
+        print(f"Elapsed time: {time.time() - start}")
+        import pdb; pdb.set_trace()
         pdf_dict[param_name] = {"pdf": pdf, "init_min:": param_seq.min(), "init_max": param_seq.max()}
 
     # TODO: Add .get() loop if parallelized to populate pdf_dict

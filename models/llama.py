@@ -145,8 +145,8 @@ class Llama(nn.Module):
             ),
         )
 
-    def forward_probs(self, prompt, good_tokens, kv_cache: HierarchyCache = None, use_cache=True):
-        input_ids = self.tokenizer(prompt, return_tensors="pt", rescale=False).input_ids.to("cuda")
+    def forward_probs(self, prompt, good_tokens, kv_cache: HierarchyCache = None, use_cache=True, rescale=True):
+        input_ids = self.tokenizer(prompt, return_tensors="pt", rescale=rescale).input_ids.to("cuda")
         with torch.no_grad():
             out = self.model(
                 input_ids,

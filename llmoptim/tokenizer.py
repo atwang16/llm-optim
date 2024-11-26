@@ -24,14 +24,13 @@ class Tokenizer:
     def _to_string(self, data: np.ndarray):
         def to_string_num(num: float) -> str:
             num *= 10 ** (self.n_digits - 1)
-            return "".join(letter for letter in str(int(num)))
-
+            return "".join(letter for letter in f"{int(num):0{self.n_digits}d}")
         return ",".join(to_string_num(value) for value in data)
 
     def __call__(self, sequence: str, return_tensors: str = None, rescale: bool = True):
         if rescale:
             data = np.array(list(map(float, sequence.split(",")[:-1])))
-            data = self._rescale(data)
+            data = self._rescale(data / 100)
             data = np.round(data, self.n_digits - 1)
             data_string = self._to_string(data)
         else:
