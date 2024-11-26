@@ -194,7 +194,10 @@ def create_mp4_from_frames(folder='assets/frames', output_file='assets/toy2d_gt_
 if __name__ == "__main__":
     # Initialize the problem
     theta_init = torch.tensor([0.0, 0.5], requires_grad=True)  # Initial values 
+
+    ## Uncomment the following line for convex, overparametrized problem
     #model = ConvexProblemModel(theta_init, random_seed=315, theta_star = [4, 3], batch_size=1, dataset_size_N=2) 
+    ## Uncomment the following line for convex, underparametrized problem
     model = ConvexProblemModel(theta_init, random_seed=315, theta_star = [4, 3], batch_size=10, dataset_size_N=100) 
     generate_sgd_trajectory( model )
     trajectory = load_ckpt_to_traj()
