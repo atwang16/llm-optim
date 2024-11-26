@@ -16,7 +16,14 @@ from llmoptim.tokenizer import Tokenizer
 
 
 class Llama(nn.Module):
-    def __init__(self, _4bit: bool = True, _8bit: bool = False, flash_attention: bool = False, dtype=torch.float16, llama_v: [2, 3] = 3):
+    def __init__(
+        self,
+        _4bit: bool = True,
+        _8bit: bool = False,
+        flash_attention: bool = False,
+        dtype=torch.float16,
+        llama_v: [2, 3] = 3,
+    ):
         super().__init__()
         if _4bit:
             bnb_config = BitsAndBytesConfig(
@@ -46,8 +53,9 @@ class Llama(nn.Module):
                 trust_remote_code=True,
                 attn_implementation=attn_type,
             )
-            self.llama_tokenizer = AutoTokenizer.from_pretrained("NousResearch/Hermes-3-Llama-3.1-8B",
-                                                             trust_remote_code=True)
+            self.llama_tokenizer = AutoTokenizer.from_pretrained(
+                "NousResearch/Hermes-3-Llama-3.1-8B", trust_remote_code=True
+            )
         elif llama_v == 2:
             self.model = AutoModelForCausalLM.from_pretrained(
                 "NousResearch/Nous-Hermes-llama-2-7b",
@@ -57,12 +65,15 @@ class Llama(nn.Module):
                 trust_remote_code=True,
                 attn_implementation=attn_type,
             )
-            self.llama_tokenizer = AutoTokenizer.from_pretrained("NousResearch/Nous-Hermes-llama-2-7b",
-                                                                trust_remote_code=True)
+            self.llama_tokenizer = AutoTokenizer.from_pretrained(
+                "NousResearch/Nous-Hermes-llama-2-7b", trust_remote_code=True
+            )
 
         self.tokenizer = Tokenizer(self.llama_tokenizer)
 
-    def forward_llama(self, prompt, max_new_tokens=128, temperature=1.0, top_p=1.0, top_k=50, repetition_penalty=1.0, do_sample=True):
+    def forward_llama(
+        self, prompt, max_new_tokens=128, temperature=1.0, top_p=1.0, top_k=50, repetition_penalty=1.0, do_sample=True
+    ):
         """
         This method is for text generation, not llmoptim
         """
@@ -77,9 +88,16 @@ class Llama(nn.Module):
             do_sample=do_sample,
             eos_token_id=self.llama_tokenizer.eos_token_id,
         )
-        return (self.llama_tokenizer.decode(generated_ids[0][input_ids.shape[-1]:], skip_special_tokens=True, clean_up_tokenization_space=True), generated_ids)
+        return (
+            self.llama_tokenizer.decode(
+                generated_ids[0][input_ids.shape[-1] :], skip_special_tokens=True, clean_up_tokenization_space=True
+            ),
+            generated_ids,
+        )
 
-    def forward_response(self, prompt, max_new_tokens=128, temperature=1.0, top_p=1.0, top_k=50, repetition_penalty=1.0, do_sample=True):
+    def forward_response(
+        self, prompt, max_new_tokens=128, temperature=1.0, top_p=1.0, top_k=50, repetition_penalty=1.0, do_sample=True
+    ):
         input_ids = self.tokenizer(prompt, return_tensors="pt").input_ids.to("cuda")
         generated_ids = self.model.generate(
             input_ids,
@@ -91,29 +109,61 @@ class Llama(nn.Module):
             do_sample=do_sample,
             eos_token_id=self.tokenizer.eos_token_id,
         )
-        return (self.tokenizer.decode(generated_ids[0][input_ids.shape[-1]:], skip_special_tokens=True, clean_up_tokenization_space=True), generated_ids)
+        return (
+            self.tokenizer.decode(
+                generated_ids[0][input_ids.shape[-1] :], skip_special_tokens=True, clean_up_tokenization_space=True
+            ),
+            generated_ids,
+        )
 
     def forward_state(self, prompt, good_tokens, state_len, temperature=1.0, kv_cache=None, use_cache=False):
         input_ids = self.tokenizer(prompt, return_tensors="pt").input_ids.to("cuda")
         new_state = ""
         for _ in range(state_len):
             with torch.no_grad():
-                out = self.model(input_ids, use_cache=use_cache, past_key_values=tuple(tuple(x.cuda() for x in sub_tuple) for sub_tuple in kv_cache) if kv_cache is not None and use_cache else None)
+                out = self.model(
+                    input_ids,
+                    use_cache=use_cache,
+                    past_key_values=(
+                        tuple(tuple(x.cuda() for x in sub_tuple) for sub_tuple in kv_cache)
+                        if kv_cache is not None and use_cache
+                        else None
+                    ),
+                )
             logit_mat = out["logits"]
             kv_cache = out["past_key_values"] if kv_cache is not None and use_cache else None
-            probs = torch.nn.functional.softmax(logit_mat[0, -1, good_tokens].clone().cpu().to(torch.float32), dim=0).numpy()
+            probs = torch.nn.functional.softmax(
+                logit_mat[0, -1, good_tokens].clone().cpu().to(torch.float32), dim=0
+            ).numpy()
             next_token = good_tokens[np.argmax(probs)]
             new_state += self.tokenizer.decode([next_token])[0]
             input_ids = torch.cat([input_ids, torch.tensor([[next_token]], dtype=torch.long).to("cuda")], dim=-1)
-        return (new_state, tuple(tuple(x.cpu() for x in sub_tuple) for sub_tuple in kv_cache) if kv_cache is not None and use_cache else None)
+        return (
+            new_state,
+            (
+                tuple(tuple(x.cpu() for x in sub_tuple) for sub_tuple in kv_cache)
+                if kv_cache is not None and use_cache
+                else None
+            ),
+        )
 
     def forward_probs(self, prompt, good_tokens, kv_cache=None, use_cache=False):
         input_ids = self.tokenizer(prompt, return_tensors="pt").input_ids.to("cuda")
         with torch.no_grad():
-            out = self.model(input_ids, use_cache=use_cache, past_key_values=tuple(tuple(x.cuda() for x in sub_tuple) for sub_tuple in kv_cache) if kv_cache is not None and use_cache else None)
+            out = self.model(
+                input_ids,
+                use_cache=use_cache,
+                past_key_values=(
+                    tuple(tuple(x.cuda() for x in sub_tuple) for sub_tuple in kv_cache)
+                    if kv_cache is not None and use_cache
+                    else None
+                ),
+            )
         logit_mat = out["logits"]
-        kv_cache = out["past_key_values"] if kv_cache is not None and use_cache else None
-        probs = torch.nn.functional.softmax(logit_mat[0, -1, good_tokens].clone().cpu().to(torch.float32), dim=0).numpy()
+        kv_cache = out["past_key_values"]
+        probs = torch.nn.functional.softmax(
+            logit_mat[0, -1, good_tokens].clone().cpu().to(torch.float32), dim=0
+        ).numpy()
         good_logits = logit_mat[0, -1, good_tokens].clone().cpu().to(torch.float32).numpy()
         return probs, kv_cache, good_logits
 
@@ -123,7 +173,116 @@ if __name__ == "__main__":
 
     # prompts = ["""123,456,789,234,567,890,345,678,901,456,789,012,567,890,123,678,901,234,789,012,345,890,123,456,901,234,567,012,345,678,123,456,789,234,567,890,345,678,901,456,789,012,567,890,123,678,901,234,789,012,345,890,123,456,901,234,567,012,345,678,123,456,789,234,567,890,345,678,901,456,789,012,567,890,123,678,901,234,789,012,345,890,123,456,901,234,567,012,345,678,123,456,789,234,567,890,345,678,901,456,789,012,567,890,123,678,901,234,789,012,345,890,123,456,901,234,567,012,345,678,123,456,789,234,567,890,345,678,901,456,789,012,567,890,123,678,901,234,789,012,345,890,123,456,901,234,567,012,345,678"""]
 
-    prompts = [np.array([1.23, 4.56, 7.89, 2.34, 5.67, 8.90, 3.45, 6.78, 9.01, 4.56, 7.89, 0.12, 5.67, 8.90, 1.23, 6.78, 9.01, 2.34, 7.89, 0.12, 3.45, 8.90, 1.23, 4.56, 9.01, 2.34, 5.67, 0.12, 3.45, 6.78, 1.23, 4.56, 7.89, 2.34, 5.67, 8.90, 3.45, 6.78, 9.01, 4.56, 7.89, 0.12, 5.67, 8.90, 1.23, 6.78, 9.01, 2.34, 7.89, 0.12, 3.45, 8.90, 1.23, 4.56, 9.01, 2.34, 5.67, 0.12, 3.45, 6.78, 1.23, 4.56, 7.89, 2.34, 5.67, 8.90, 3.45, 6.78, 9.01, 4.56, 7.89, 0.12, 5.67, 8.90, 1.23, 6.78, 9.01, 2.34, 7.89, 0.12, 3.45, 8.90, 1.23, 4.56, 9.01, 2.34, 5.67, 0.12, 3.45, 6.78, 1.23, 4.56, 7.89, 2.34, 5.67, 8.90, 3.45, 6.78, 9.01, 4.56, 7.89, 0.12, 5.67, 8.90])]
+    prompts = [
+        np.array(
+            [
+                1.23,
+                4.56,
+                7.89,
+                2.34,
+                5.67,
+                8.90,
+                3.45,
+                6.78,
+                9.01,
+                4.56,
+                7.89,
+                0.12,
+                5.67,
+                8.90,
+                1.23,
+                6.78,
+                9.01,
+                2.34,
+                7.89,
+                0.12,
+                3.45,
+                8.90,
+                1.23,
+                4.56,
+                9.01,
+                2.34,
+                5.67,
+                0.12,
+                3.45,
+                6.78,
+                1.23,
+                4.56,
+                7.89,
+                2.34,
+                5.67,
+                8.90,
+                3.45,
+                6.78,
+                9.01,
+                4.56,
+                7.89,
+                0.12,
+                5.67,
+                8.90,
+                1.23,
+                6.78,
+                9.01,
+                2.34,
+                7.89,
+                0.12,
+                3.45,
+                8.90,
+                1.23,
+                4.56,
+                9.01,
+                2.34,
+                5.67,
+                0.12,
+                3.45,
+                6.78,
+                1.23,
+                4.56,
+                7.89,
+                2.34,
+                5.67,
+                8.90,
+                3.45,
+                6.78,
+                9.01,
+                4.56,
+                7.89,
+                0.12,
+                5.67,
+                8.90,
+                1.23,
+                6.78,
+                9.01,
+                2.34,
+                7.89,
+                0.12,
+                3.45,
+                8.90,
+                1.23,
+                4.56,
+                9.01,
+                2.34,
+                5.67,
+                0.12,
+                3.45,
+                6.78,
+                1.23,
+                4.56,
+                7.89,
+                2.34,
+                5.67,
+                8.90,
+                3.45,
+                6.78,
+                9.01,
+                4.56,
+                7.89,
+                0.12,
+                5.67,
+                8.90,
+            ]
+        )
+    ]
     # prompts.append(prompts[0])
 
     llama = Llama(llama_v=2)
@@ -156,26 +315,30 @@ if __name__ == "__main__":
     print(f"Next state took {time_taken} seconds")"""
     pkl = np.load("/local-scratch2/cmpt981/llmICL/generated_series/geometric_brownian_motion_0.pkl", allow_pickle=True)
     seq = pkl["full_series"].split(",")[:-1][:940]
-    import pdb; pdb.set_trace()
+    import pdb
+
+    pdb.set_trace()
     # All to floats
     prompt = np.zeros(len(seq))
     for i in range(len(seq)):
         prompt[i] = float(seq[i]) / 100
 
     probs, kv_cache, logits = llama.forward_probs(prompt, good_tokens, kv_cache=kv_cache, use_cache=False)
-    import pdb; pdb.set_trace()
-    cache = HierarchyCache(3)
+    import pdb
 
-    for layer_idx in range(model.config.num_hidden_layers):
-        for head_idx in range(model.config.num_attention_heads):
-            key = [layer_idx, head_idx]
-            hierarchy_cache[key] = logits[0]
+    pdb.set_trace()
+    kv_cache = HierarchyCache(kv_cache)
 
     pdf = HierarchyPDF(True, 10, probs)
-    import pdb; pdb.set_trace()
+    import pdb
+
+    pdb.set_trace()
     pdf.refine(llama, tokenizer=llama.tokenizer, s_traj=seq, kv_cache=kv_cache, good_tokens=good_tokens, mode="pdf")
     # Plot
     import matplotlib.pyplot as plt
+
     plt.plot(prompt)
     plt.show()
-    import pdb; pdb.set_trace()
+    import pdb
+
+    pdb.set_trace()

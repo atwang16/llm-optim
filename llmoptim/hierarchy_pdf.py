@@ -8,42 +8,42 @@ from llmoptim.utils import str_seq_to_int, int_seq_to_str
 
 
 class HierarchyCache:
-    def __init__(self, num_levels: int):
-        self.num_levels = num_levels  # last layer is array
-        self.cache = {}
+    """Class wrapper around cache implementation from llmICL.
 
-    def __contains__(self, key: list[int]) -> bool:
-        cache = self.cache
-        for k in key:
-            try:
-                cache = cache[k]
-            except KeyError:
-                return False
-        return "logits" in cache
+    The cache represents a tuple of tuples, where each nested tuple isa layer in the transformer containing the key and value states.
+    """
 
-    def __getitem__(self, key: list[int]) -> float:
-        cache = self.cache
-        for k in key[:-1]:
-            try:
-                cache = cache[k]
-            except KeyError:
-                raise KeyError(f"Could not find cached probability for key: {key}")
-        return cache["logits"][key[-1]]
+    def __init__(self, past_key_values: tuple[tuple[torch.Tensor, torch.Tensor], ...] = None) -> None:
+        self.past_key_values: tuple[tuple[torch.Tensor, torch.Tensor], ...] = past_key_values
 
-    def __setitem__(self, key: list[int], value: np.ndarray):
-        if len(key) == self.num_levels - 1:
-            cache = self.cache
-            for k in key:
-                if k in cache:
-                    cache = cache[k]
-                else:
-                    cache[k] = {}
-                    cache = cache[k]
-            cache["logits"] = value
-        else:
-            raise ValueError(
-                f"Key length must be one less than the number of levels (last level is an array), but got: {key}"
-            )
+    @property
+    def is_empty(self) -> bool:
+        return self.past_key_values is None
+
+    def trim(self, length: int, inplace: bool = False) -> Self:
+        trimmed_past_key_values = []
+        for layer_past in self.past_key_values:
+            key_states, value_states = layer_past
+            new_layer_past = (key_states[..., :length, :], value_states[..., :length, :])
+            trimmed_past_key_values.append(new_layer_past)
+
+        if inplace:
+            self.past_key_values = tuple(trimmed_past_key_values)
+            return self
+        return HierarchyCache(tuple(trimmed_past_key_values))
+
+    def to(self, device: str) -> Self:
+        self.past_key_values = tuple(tuple(x.to(device) for x in sub_tuple) for sub_tuple in self.past_key_values)
+        return self
+
+    def cuda(self) -> Self:
+        return self.to("cuda")
+
+    def cpu(self) -> Self:
+        return self.to("cpu")
+
+    def to_tuple(self) -> tuple[tuple[torch.Tensor, torch.Tensor], ...]:
+        return self.past_key_values
 
 
 class HierarchyPDF:
@@ -112,8 +112,12 @@ class HierarchyPDF:
                 raise ValueError(f"Invalid mode. Expected 'neighbor' or 'all', but got: {mode}")
 
             for new_state in new_states:
-                new_sequence = [*sequence[: -self.n_levels], new_state]
-                self._recursive_refine(model, tokenizer, False, refinement_depth, new_sequence, kv_cache, mode=mode)
+                if refinement_depth > 1:
+                    trimmed_kv_cache = kv_cache.trim(-refinement_depth + 1)
+                new_sequence = [*sequence[:-refinement_depth], new_state]
+                self._recursive_refine(
+                    model, tokenizer, False, refinement_depth, new_sequence, trimmed_kv_cache, mode=mode
+                )
 
             # iterate at next level
             if refinement_depth > 1:  # recurse to refine down another level
@@ -150,18 +154,22 @@ class HierarchyPDF:
         s_traj = int_seq_to_str(states)
         batch = tokenizer([s_traj], return_tensors="pt", add_special_tokens=True)
 
-        if load_cache_to_cpu:
-            kv_cache = tuple(tuple(x.cuda() for x in sub_tuple) for sub_tuple in kv_cache)
-        with torch.no_grad():
-            out = model(batch["input_ids"][:, -1:].cuda(), use_cache=True, past_key_values=kv_cache)
+        if kv_cache is None or kv_cache.is_empty:
+            with torch.no_grad():
+                out = model(batch["input_ids"].cuda(), use_cache=True)
+        else:
+            if load_cache_to_cpu:
+                kv_cache.cuda()
+            with torch.no_grad():
+                out = model(batch["input_ids"][:, -1:].cuda(), use_cache=True, past_key_values=kv_cache.to_tuple())
 
         logit_mat = out["logits"]
+        kv_cache_new = HierarchyCache(out["past_key_values"])
         if load_cache_to_cpu:
-            kv_cache_new = tuple(tuple(x.cpu() for x in sub_tuple) for sub_tuple in out["past_key_values"])
-        else:
-            kv_cache_new = out["past_key_values"]
+            kv_cache_new = HierarchyCache(out["past_key_values"]).cpu()
+        
         probs = torch.nn.functional.softmax(logit_mat[0, -1, good_tokens].clone().cpu(), dim=0).numpy()
-        return (probs, kv_cache_new)
+        return probs, kv_cache_new
 
     def update(self, pdf: Self) -> Self:
         if self.prob is None:
