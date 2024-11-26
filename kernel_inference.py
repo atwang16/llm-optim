@@ -16,8 +16,19 @@ def load_ckpts_into_seq(ckpts_path):
     # Returns a dict {"{param_name}": np.ndarray({n_ckpts}), ...},
     # where n_ckpts practically is time series length we provide as an input
     # remember to account for param_name being actually {layer_name}_{param_flattened_index}
-    # TODO
-    pass
+    model_state_dicts = [torch.load(ckpt_path) for ckpt_path in sorted(ckpts_path)]
+    param_specs = [(param_name, param_mat.size()) for param_name, param_mat in model_state_dicts[0].items()]
+    sequences = {}
+    for param_spec in param_specs:
+        param_name, param_size = param_spec
+        total_flattened = np.prod(param_size)
+        for i in range(total_flattened):
+            param_seq = np.zeros(len(model_state_dicts))
+            for j, model_state_dict in enumerate(model_state_dicts):
+                param_seq[j] = model_state_dict[param_name].flatten()[i]
+            sequences[f"{param_name}_{i}"] = param_seq
+    return sequences
+            
 
 
 def get_pdf(sequence: np.ndarray, llama: Llama, good_tokens: str, output_file: str = None):
