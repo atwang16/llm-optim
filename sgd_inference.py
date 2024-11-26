@@ -38,8 +38,19 @@ def load_kernels(kernels_dir):
     return kernels_dict
 
 
-def apply_kernel(kernels_dict, state_mat):
-    pass
+def apply_kernel(kernels_dict, state_mat, model_state_dict):
+    # TODO: debug
+    counter = 0
+    new_state_mat = np.zeros_like(state_mat)
+    for key in model_state_dict.keys():
+        for i, _ in enumerate(model_state_dict[key].flatten()):
+            kernel = kernels_dict[f"{key}_{i}"]["kernel"]
+            param_state_vec = state_mat[:, counter]
+            new_state_probs = np.matmul(kernel, param_state_vec)
+            # Argmax over probabilities
+            new_state_mat[torch.argmax(new_state_probs, dim=0), counter] = 1
+            counter += 1
+    return new_state_mat
 
 
 def state_mat_to_param(state_mat, kernels_dict, model_state_dict):
@@ -47,7 +58,7 @@ def state_mat_to_param(state_mat, kernels_dict, model_state_dict):
     params_mat = model_state_dict.clone()
     counter = 0
     for key in model_state_dict.keys():
-        for i, param in enumerate(model_state_dict[key].flatten()):
+        for i, _ in enumerate(model_state_dict[key].flatten()):
             # i is flattened index
             # j1, j2 are indices in the original shape
             j1 = i // model_state_dict[key].shape[1]
