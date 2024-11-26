@@ -1,10 +1,13 @@
 #%%
+
+#%%
 import torch
 import os
 
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from PIL import Image
+import numpy as np
 import imageio
 
 # chdir to the parent dir of this file
@@ -13,15 +16,60 @@ print(os.getcwd())
 #%%
 # Define the convex function
 class ConvexProblemModel(torch.nn.Module):
-    def __init__(self, init_params):
+    def __init__(self, init_params, random_seed=314, theta_star = [4, 3], batch_size=10, dataset_size_N=100):
         super(ConvexProblemModel, self).__init__()
-        self.thetas = torch.nn.Parameter(torch.tensor(init_params), requires_grad=True)
+        self.__dict__.update(locals()) # save all arguments to self
+        self.thetas = torch.nn.Parameter(torch.tensor(init_params)[:,None], requires_grad=True)
 
-    def forward(self, x=None):
-        if x is None:
-            x = self.thetas
-        return (x[0] - 2)**2 + (x[1] - 3)**2 + x[0] - x[1]
+        # Generate data
+        self.generate_data(theta_star, dataset_size_N)
 
+    def get_random_batch(self, batch_size=None):
+        if batch_size is None:
+            batch_size = self.batch_size
+        indices = np.random.choice(len(self.x), batch_size)
+        return torch.tensor(self.x[indices], dtype=torch.float32), torch.tensor(self.y[indices], dtype=torch.float32)
+    def generate_data(self, theta_star, dataset_size_N):
+        self.x = torch.randn(dataset_size_N, 2)  # 100 points in R^2, normal distribution (mean=0, std=1)
+        self.theta_star = torch.tensor(theta_star, dtype=torch.float32)  # Ground truth
+        self.y = self.x @ self.theta_star + torch.randn(dataset_size_N) * 0.5  # Add small noise
+    def get_loss_i(self, x=None, y=None, thetas=None):
+        if thetas is None:
+            thetas = self.thetas
+        if x is None or y is None:
+            x = self.x # use all data
+            y = self.y # use all data
+        return .5*((x@thetas - y[:,None])**2) # (m, thetas.shape[1])
+    def forward(self, x=None, y=None, thetas=None):
+        '''
+            x: torch.tensor of shape (m, 2) where m is the batch size
+            y: torch.tensor of shape (m,)
+            thetas: torch.tensor of shape (2,)
+        '''
+        #return (x[0] - 2)**2 + (x[1] - 3)**2 + x[0] - x[1]
+        # 1/N Σ (f(xi, θ))
+        # f(xi, θ) = 1/2 ( ||xi-θ|| − y)^2
+        loss_i = self.get_loss_i(x, y, thetas) # shape (m, 1)
+        loss =  loss_i.mean() 
+        # f(xi, θ) = 1/2 ( ||xi-θ|| − y)^2
+        return loss
+class NonConvexProblemModel(ConvexProblemModel):
+    def generate_data(self, theta_star, dataset_size_N):
+        self.x = torch.randn(dataset_size_N, 2)  # 100 points in R^2, normal distribution (mean=0, std=1)
+        self.theta_star = torch.tensor(theta_star, dtype=torch.float32)[:,None]  # Ground truth
+        self.y = self.x @ self.theta_star + torch.randn(dataset_size_N, 1) * 0.5  # Add small noise
+        self.y = self.y + 0.5 * torch.sin(self.x[:,0:1]) # Add non-convexity
+    def get_loss_i(self, x=None, y=None, thetas=None):
+        if thetas is None:
+            thetas = self.thetas
+        if x is None or y is None:
+            x = self.x # use all data
+            y = self.y # use all data
+
+        pred = thetas[0] * torch.sin(thetas[1]*x)
+        f_theta = .5* ( ( pred - y )**2 )
+        return f_theta
+    
 # Create a directory for saving checkpoints
 ckpt_dir = "checkpoints_2dtoy"
 os.makedirs(ckpt_dir, exist_ok=True)
@@ -31,8 +79,9 @@ def generate_sgd_trajectory(model, num_steps=50, lr=0.1):
     optimizer = torch.optim.SGD(model.parameters(), lr=lr)
     # Optimization loop
     for step in range(0, num_steps + 1):
+        x, y = model.get_random_batch()
         optimizer.zero_grad()
-        loss = model()
+        loss = model(x, y)
         if step > 0:
             loss.backward()
             optimizer.step()
@@ -58,7 +107,9 @@ def compute_grid_values(model, x_range=[0,2], y_range=[0,3], resolution=100):
     points = torch.stack([X.flatten(), Y.flatten()], dim=1)  # Flatten and stack coordinates
     
     with torch.no_grad():
-        Z = model(points.T).view(resolution, resolution)  # Batch process and reshape
+        Z = model.get_loss_i(thetas=points.T)  # Batch process and reshape
+        Z = Z.mean(axis=0) # Average over the batch dimension
+        Z = Z.view(resolution, resolution)
 
     return X.numpy(), Y.numpy(), Z.numpy()
     # Example usage
@@ -89,6 +140,7 @@ def load_ckpt_to_traj(ckpt_dir = ckpt_dir):
 # Function to plot and save frames progressively
 def plot_progressive_trajectory(trajectory, model, folder='assets/frames', margin=0.4, cmap='viridis'):
     os.makedirs(folder, exist_ok=True)
+    trajectory = trajectory[..., 0 ].clone()
     minr, maxr = trajectory.min(axis=0)[0].numpy(), trajectory.max(axis=0)[0].numpy()
     X, Y, Z = compute_grid_values(
         model, 
@@ -141,9 +193,10 @@ def create_mp4_from_frames(folder='assets/frames', output_file='assets/toy2d_gt_
 # %%
 if __name__ == "__main__":
     # Initialize the problem
-    x = torch.tensor([0.0, 0.5], requires_grad=True)  # Initial values 
-    model = ConvexProblemModel(x)
-    generate_sgd_trajectory(model )
+    theta_init = torch.tensor([0.0, 0.5], requires_grad=True)  # Initial values 
+    #model = ConvexProblemModel(theta_init, random_seed=315, theta_star = [4, 3], batch_size=1, dataset_size_N=2) 
+    model = ConvexProblemModel(theta_init, random_seed=315, theta_star = [4, 3], batch_size=10, dataset_size_N=100) 
+    generate_sgd_trajectory( model )
     trajectory = load_ckpt_to_traj()
     
     print("Now plotting animations")
