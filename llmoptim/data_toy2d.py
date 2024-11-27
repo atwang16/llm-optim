@@ -23,7 +23,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 #%%
 # Define the convex function
 class ConvexProblemModel(torch.nn.Module):
-    def __init__(self, init_params, random_seed=314, theta_star = [4, 3], batch_size=10, dataset_size_N=100, name=''):
+    def __init__(self, init_params, output_root=OUTPUT_DIR, random_seed=314, theta_star = [4, 3], batch_size=10, dataset_size_N=100, name=''):
         super(ConvexProblemModel, self).__init__()
         self.__dict__.update(locals()) # save all arguments to self
         self.thetas = torch.nn.Parameter(torch.tensor(init_params).reshape(-1,1), requires_grad=True)
@@ -31,7 +31,7 @@ class ConvexProblemModel(torch.nn.Module):
         # Generate data
         self.generate_data(theta_star, dataset_size_N)
 
-        self.output_dir = os.path.join(OUTPUT_DIR, name)
+        self.output_dir = output_root #os.path.join(output_root, name)
         self.ckpt_dir   = os.path.join(self.output_dir, 'ckpts/')
         self.visual_dir = os.path.join(self.output_dir, 'visuals/')
         os.makedirs(self.ckpt_dir, exist_ok=True)
@@ -244,8 +244,99 @@ if __name__ == "__main__":
     # model = NonConvexProblemModel(theta_init, random_seed=315, theta_star = [-1, -1], batch_size=10, dataset_size_N=100, name='nonconvex_underparam_run3') 
     # generate_sgd_traj_and_visuals(model, lr=.4, plot_range=[[-2, -2], [2,2]])
 
-    theta_init = torch.tensor([-1.9, 1.9], requires_grad=True)  # Initial values 
-    model = NonConvexProblemModel(theta_init, random_seed=315, theta_star = [-1, -1], batch_size=10, dataset_size_N=100, name='nonconvex_underparam_run4') 
-    generate_sgd_traj_and_visuals(model, lr=.4, plot_range=[[-2, -2], [2,2]])
+    # theta_init = torch.tensor([-1.9, 1.9], requires_grad=True)  # Initial values 
+    # model = NonConvexProblemModel(theta_init, random_seed=315, theta_star = [-1, -1], batch_size=10, dataset_size_N=100, name='nonconvex_underparam_run4') 
+    # generate_sgd_traj_and_visuals(model, lr=.4, plot_range=[[-2, -2], [2,2]])
+
+
 
 # %%
+class LLMSGDKernelInfer():
+    def __init__(self, exp_name):
+        self.__dict__.update(locals())
+        self.model = None 
+        self.exp_name = exp_name
+        self.output_root = 'output/' + exp_name
+        self.infer_init_ckpt_path = f'{self.output_root}/infer_init_ckpt.pth'
+    def generate_data(self, theta_star, dataset_size_N):
+        raise NotImplementedError()
+
+    def infer_kernels(self, llama_v=2, ckpts_path=None, output_dir=None):
+        ckpts_path = f'{self.output_root}/ckpts/'
+        output_dir = f'{self.output_root}/inferred_kernels/'
+
+        kernel_inference_cmd = \
+        f"python kernel_inference.py --ckpts_path {ckpts_path} --llama_v {llama_v} --output_dir {output_dir}"
+        print(kernel_inference_cmd)
+        os.system(kernel_inference_cmd)
+
+    def infer_sgd(self, infer_init_thetas=[1.,2.]):
+        self.model.thetas = torch.nn.Parameter(torch.tensor(infer_init_thetas).reshape(-1,1), requires_grad=True)
+        torch.save({"model_state_dict": self.model.state_dict()}, self.infer_init_ckpt_path)
+
+        init_ckpt_path = self.infer_init_ckpt_path
+        output_dir  = f'{self.output_root}/inferred_sgd'
+        kernels_dir = f'{self.output_root}/inferred_kernels/kernel/'
+        steps = 50
+        sgd_inference_cmd = \
+        f"python sgd_inference.py --init_ckpt_path {init_ckpt_path} --output_dir {output_dir} --kernels_dir {kernels_dir} --steps {steps}"
+        print(sgd_inference_cmd)
+        os.system(sgd_inference_cmd)
+
+    def visualize_sgd_inference(self,):
+        pass
+
+class LSKI_convex_underparam(LLMSGDKernelInfer):
+    def __init__(self):
+        super().__init__(exp_name = 'convex_underparam')
+        theta_init = torch.tensor([0.0, 0.5], requires_grad=True)  # Initial values 
+        self.model = ConvexProblemModel(theta_init, random_seed=315, theta_star = [4, 3], batch_size=10, dataset_size_N=100, name='convex_underparam', output_root=self.output_root) 
+    def generate_data(self):
+        generate_sgd_traj_and_visuals(self.model, lr=.1)
+class LSKI_convex_overparam(LLMSGDKernelInfer):
+    def __init__(self):
+        super().__init__(exp_name = 'convex_overparam')
+        theta_init = torch.tensor([0.0, 0.5], requires_grad=True)  # Initial values 
+        self.model = ConvexProblemModel(theta_init, random_seed=315, theta_star = [4, 3], batch_size=1, dataset_size_N=2, name='convex_overparam', output_root=self.output_root) 
+    def generate_data(self):
+        generate_sgd_traj_and_visuals(self.model, lr=.1)
+class LSKI_nonconvex_underparam(LLMSGDKernelInfer):
+    def __init__(self):
+        super().__init__(exp_name = 'nonconvex_underparam')
+        theta_init = torch.tensor([1.0, -1.5], requires_grad=True)  # Initial values 
+        self.model = NonConvexProblemModel(theta_init, random_seed=315, theta_star = [-1, -1], batch_size=10, dataset_size_N=100, name='nonconvex_underparam', output_root=self.output_root) 
+    def generate_data(self):
+        generate_sgd_traj_and_visuals(self.model, lr=.4, plot_range=[[-2, -2], [2,2]])
+class LSKI_nonconvex_underparam_run2(LLMSGDKernelInfer):
+    def __init__(self):
+        super().__init__(exp_name = 'nonconvex_underparam_run2')
+        theta_init = torch.tensor([1.5, -1.], requires_grad=True)  # Initial values 
+        self.model = NonConvexProblemModel(theta_init, random_seed=315, theta_star = [-1, -1], batch_size=10, dataset_size_N=100, name='nonconvex_underparam_run2') 
+    def generate_data(self):
+        generate_sgd_traj_and_visuals(self.model, lr=.4, plot_range=[[-2, -2], [2,2]])
+class LSKI_nonconvex_underparam_run3(LLMSGDKernelInfer):
+    def __init__(self):
+        super().__init__(exp_name = 'nonconvex_underparam_run3')
+        theta_init = torch.tensor([1.9, -.5], requires_grad=True)  # Initial values 
+        self.model = NonConvexProblemModel(theta_init, random_seed=315, theta_star = [-1, -1], batch_size=10, dataset_size_N=100, name='nonconvex_underparam_run3', output_root=self.output_root) 
+    def generate_data(self):
+        generate_sgd_traj_and_visuals(self.model, lr=.4, plot_range=[[-2, -2], [2,2]])
+class LSKI_nonconvex_underparam_run4(LLMSGDKernelInfer):
+    def __init__(self):
+        super().__init__(exp_name = 'nonconvex_underparam_run4')
+        theta_init = torch.tensor([-1.9, 1.9], requires_grad=True)  # Initial values 
+        self.model = NonConvexProblemModel(theta_init, random_seed=315, theta_star = [-1, -1], batch_size=10, dataset_size_N=100, name='nonconvex_underparam_run4', output_root=self.output_root) 
+    def generate_data(self):
+        generate_sgd_traj_and_visuals(self.model, lr=.4, plot_range=[[-2, -2], [2,2]])
+
+
+#%%
+lski = LSKI_convex_underparam()
+lski.generate_data()
+#%%
+lski.infer_kernels()
+#%%
+lski.infer_sgd()
+
+#%%
+#%%plot_progressive_trajectory()

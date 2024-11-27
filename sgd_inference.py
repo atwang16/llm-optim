@@ -124,13 +124,24 @@ if __name__ == "__main__":
     init_state_dict = ckpt["model_state_dict"] if "model_state_dict" in ckpt else ckpt
     state_mat = load_params_to_state_mat(init_state_dict, kernels_dict)
 
+    trajectory = dict()
+    for key in init_state_dict.keys():
+        trajectory[key] = []
+
     for i in tqdm(range(args.steps)):
         state_mat = apply_kernel(kernels_dict, state_mat, init_state_dict)
         param_dict = state_mat_to_param(state_mat, kernels_dict, init_state_dict)
+        for key in param_dict.keys():
+            trajectory[key].append(param_dict[key])
         # TODO
         # Save checkpoint
         # model.load_state_dict(param_dict)
         # torch.save({"model_state_dict": model.state_dict()}, f"{args.output_dir}/ckpt_{i}.pt")
         # metrics = model.get_metrics()
         # np.savez(f"{args.output_dir}/metrics_{i}.npz", metrics)
-    print(param_dict)
+        print(param_dict)
+    # save trajectory
+    for key in trajectory.keys():
+        trajectory[key] = torch.cat(trajectory[key], axis=0).numpy()
+    os.makedirs(args.output_dir, exist_ok=True)
+    np.savez(f"{args.output_dir}/sgd_infer_trajectory.npz", trajectory)
