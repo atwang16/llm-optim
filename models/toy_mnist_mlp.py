@@ -57,7 +57,13 @@ def train_model(model, train_loader, criterion, optimizer, num_epochs=10, output
 
             total_loss += loss.item()
         # Save checkpoint
-        torch.save(model.state_dict(), f"{output_dir}/ckpt_{epoch:03d}.pth")
+        checkpoint = {
+            'epoch': epoch + 1,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'loss': total_loss/len(train_loader),
+        }
+        torch.save(checkpoint, f"{output_dir}/ckpt_{epoch:03d}.pth")
         print(f"Epoch {epoch+1}/{num_epochs}, Loss: {total_loss/len(train_loader):.4f}")
 
 
@@ -79,10 +85,10 @@ def evaluate_model(model, test_loader):
 if __name__ == "__main__":
     # hyperparameters
     batch_size = 12665
-    learning_rate = 0.005
+    learning_rate = 0.01
     num_epochs = 50
     hidden_size = 128
-    output_dir = "../toy_mnist_mlp_ckpt_lr_0.005"
+    output_dir = "../toy_mnist_mlp_ckpt_lr_0.01"
 
     train_loader, test_loader = get_data_loaders(batch_size)
     # initialize model, loss, and optimizer
