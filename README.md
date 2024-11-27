@@ -17,8 +17,7 @@ pip install imageio
 pip install imageio[ffmpeg]
 ```
 
+Run `python llmoptim/data_toy2d.py` to generate the SGD trajectory (ckpt stored in `dataprep_output/*/ckpts` and visuals are stored in `dataprep_output/*/visuals`)
 
-Run `python llmoptim/data_toy2d.py` to generate the SGD trajectory (stored in checkpoints_2dtoy), also the animation below will be generated at `assets/`
-
-![GIF animation](assets/toy2d_gt_output.gif)
-
+Convex underparameterized example:
+![GIF animation](assets/convex_underparam.gif)
