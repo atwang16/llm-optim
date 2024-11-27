@@ -322,7 +322,7 @@ if __name__ == "__main__":
     #%%
     lski.infer_sgd(infer_init_thetas=[1.5, 2.5])
 
-    traj = np.load('llm-optim/output/convex_underparam/inferred_sgd/sgd_infer_trajectory.npz', allow_pickle=True)['arr_0'].item()['thetas']
+    traj = np.load('output/convex_underparam/inferred_sgd/sgd_infer_trajectory.npz', allow_pickle=True)['arr_0'].item()['thetas']
     print(traj.shape)
     plot_progressive_trajectory(torch.from_numpy(traj), lski.model, frame_dirname='sgdrunframes3')
 
