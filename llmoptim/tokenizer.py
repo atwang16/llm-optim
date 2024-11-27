@@ -9,7 +9,7 @@ class Tokenizer:
         self.min = min_
         self.max = max_
         self.n_digits = n_digits
-        self.eos_token_id = self.tokenizer.eos_token_id
+        self.eos_token_id = self.tokenizer.eos_token_id if tokenizer else None
 
     def decode(self, generated_ids, skip_special_tokens=True, clean_up_tokenization_space=True):
         return self.tokenizer.decode(

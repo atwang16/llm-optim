@@ -1,4 +1,5 @@
 import argparse
+import copy
 import os
 from glob import glob
 
@@ -21,7 +22,9 @@ def param_to_state(param_val, init_min, init_max):
 
 def state_to_param(state, init_min, init_max):
     float_state = float(state) / 100
-    return float_state * (init_max - init_min) + init_min
+
+    original_value = (float_state - 1.5) * (init_max - init_min) / (8.5 - 1.5) + init_min
+    return original_value
 
 
 def load_kernels(kernels_dir):
@@ -38,6 +41,18 @@ def load_kernels(kernels_dir):
     return kernels_dict
 
 
+def get_new_state(new_state_probs, cur_state):
+    # Sort in decreasing order
+    sorted_probs = np.argsort(new_state_probs)[::-1]
+    cond1, cond2 = False, False
+    counter = 0
+    while not (cond1 and cond2):
+        cond1 = sorted_probs[counter] != cur_state  # Skip the current state if
+        cond2 = len(str(sorted_probs[counter])) == 3 # Skip if the state is not 3 digits
+        counter += 1
+    return sorted_probs[counter - 1]
+
+
 def apply_kernel(kernels_dict, state_mat, model_state_dict):
     # TODO: debug
     counter = 0
@@ -48,14 +63,15 @@ def apply_kernel(kernels_dict, state_mat, model_state_dict):
             param_state_vec = state_mat[:, counter]
             new_state_probs = np.matmul(kernel, param_state_vec)
             # Argmax over probabilities
-            new_state_mat[torch.argmax(new_state_probs, dim=0), counter] = 1
+            new_state = get_new_state(new_state_probs, np.argmax(param_state_vec))
+            new_state_mat[new_state, counter] = 1
             counter += 1
     return new_state_mat
 
 
 def state_mat_to_param(state_mat, kernels_dict, model_state_dict):
     # TODO: debug
-    params_mat = model_state_dict.clone()
+    params_mat = copy.deepcopy(model_state_dict)
     counter = 0
     for key in model_state_dict.keys():
         for i, _ in enumerate(model_state_dict[key].flatten()):
@@ -64,13 +80,13 @@ def state_mat_to_param(state_mat, kernels_dict, model_state_dict):
             j1 = i // model_state_dict[key].shape[1]
             j2 = i % model_state_dict[key].shape[1]
             params_mat[key][j1][j2] = state_to_param(
-                state_mat[:, counter], kernels_dict[f"{key}_{i}"]["init_min"], kernels_dict[f"{key}_{i}"]["init_max"]
+                np.argmax(state_mat[:, counter]), kernels_dict[f"{key}_{i}"]["init_min"], kernels_dict[f"{key}_{i}"]["init_max"]
             )
             counter += 1
     return params_mat
 
 
-def load_params(model_state_dict, kernels_dict):
+def load_params_to_state_mat(model_state_dict, kernels_dict):
     # TODO: debug
     params_size = 0
     for key in model_state_dict.keys():
@@ -105,15 +121,16 @@ if __name__ == "__main__":
     # Load kernels
     kernels_dict = load_kernels(args.kernels_dir)
 
-    state_mat = load_params(ckpt["model_state_dict"], kernels_dict)
+    init_state_dict = ckpt["model_state_dict"] if "model_state_dict" in ckpt else ckpt
+    state_mat = load_params_to_state_mat(init_state_dict, kernels_dict)
 
     for i in tqdm(range(args.steps)):
-        state_mat = apply_kernel(kernels_dict, state_mat)
-        param_dict = state_mat_to_param(state_mat, kernels_dict)
-
+        state_mat = apply_kernel(kernels_dict, state_mat, init_state_dict)
+        param_dict = state_mat_to_param(state_mat, kernels_dict, init_state_dict)
         # TODO
         # Save checkpoint
         # model.load_state_dict(param_dict)
         # torch.save({"model_state_dict": model.state_dict()}, f"{args.output_dir}/ckpt_{i}.pt")
         # metrics = model.get_metrics()
         # np.savez(f"{args.output_dir}/metrics_{i}.npz", metrics)
+    print(param_dict)
