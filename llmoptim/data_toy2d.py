@@ -147,8 +147,16 @@ def load_ckpt_to_traj(ckpt_dir):
 # %%
 
 # Function to plot and save frames progressively
-def plot_progressive_trajectory(trajectory, model, plot_range=None, margin=0.4, cmap='viridis'):
-    save_dir = model.visual_dir + '/frames/'
+def plot_progressive_trajectory(trajectory, model, frame_dirname='frames', plot_range=None, margin=0.4, cmap='viridis'):
+    '''
+        trajectory: torch.tensor of shape (num_steps, 2, 1)
+        model: ConvexProblemModel
+        plot_range: list of list of 2 elements, [[x_min, y_min], [x_max, y_max]]
+        margin: float, margin to add to the plot range
+        cmap: str, colormap
+
+    '''
+    save_dir = model.visual_dir + f'/{frame_dirname}/'
     os.makedirs(save_dir, exist_ok=True)
     trajectory = trajectory[..., 0 ].clone()
     if plot_range is None:
@@ -339,4 +347,4 @@ lski.infer_kernels()
 lski.infer_sgd()
 
 #%%
-#%%plot_progressive_trajectory()
+#%%

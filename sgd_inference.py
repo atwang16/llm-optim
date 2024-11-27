@@ -142,6 +142,6 @@ if __name__ == "__main__":
         print(param_dict)
     # save trajectory
     for key in trajectory.keys():
-        trajectory[key] = torch.cat(trajectory[key], axis=0).numpy()
+        trajectory[key] = torch.stack(trajectory[key], axis=0).numpy()
     os.makedirs(args.output_dir, exist_ok=True)
     np.savez(f"{args.output_dir}/sgd_infer_trajectory.npz", trajectory)
