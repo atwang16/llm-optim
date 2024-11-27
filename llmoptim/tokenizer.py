@@ -25,7 +25,7 @@ class Tokenizer:
         def to_string_num(num: float) -> str:
             num *= 10 ** (self.n_digits - 1)
             return "".join(letter for letter in f"{int(num):0{self.n_digits}d}")
-        return ",".join(to_string_num(value) for value in data)
+        return ",".join(to_string_num(value) for value in data) + ","
 
     def __call__(self, sequence: str, return_tensors: str = None, rescale: bool = True):
         if rescale:
