@@ -230,33 +230,6 @@ def generate_sgd_traj_and_visuals(model, num_steps=50, lr=.1, plot_range=None):
     create_gif(model.visual_dir)
     print("Now creating mp4")
     create_mp4_from_frames(model.visual_dir)
-# %%
-if __name__ == "__main__":
-    # Initialize the problem
-    theta_init = torch.tensor([0.0, 0.5], requires_grad=True)  # Initial values 
-
-    # model = ConvexProblemModel(theta_init, random_seed=315, theta_star = [4, 3], batch_size=10, dataset_size_N=100, name='convex_underparam') 
-    # model.generate_sgd_traj_and_visuals()
-    # model = ConvexProblemModel(theta_init, random_seed=315, theta_star = [4, 3], batch_size=1, dataset_size_N=2, name='convex_overparam') 
-    # model.generate_sgd_traj_and_visuals()
-
-    # theta_init = torch.tensor([1.0, -1.5], requires_grad=True)  # Initial values 
-    # model = NonConvexProblemModel(theta_init, random_seed=315, theta_star = [-1, -1], batch_size=10, dataset_size_N=100, name='nonconvex_underparam') 
-    # generate_sgd_traj_and_visuals(model, lr=.4, plot_range=[[-2, -2], [2,2]])
-
-    # theta_init = torch.tensor([1.5, -1.], requires_grad=True)  # Initial values 
-    # model = NonConvexProblemModel(theta_init, random_seed=315, theta_star = [-1, -1], batch_size=10, dataset_size_N=100, name='nonconvex_underparam_run2') 
-    # generate_sgd_traj_and_visuals(model, lr=.4, plot_range=[[-2, -2], [2,2]])
-
-    # theta_init = torch.tensor([1.9, -.5], requires_grad=True)  # Initial values 
-    # model = NonConvexProblemModel(theta_init, random_seed=315, theta_star = [-1, -1], batch_size=10, dataset_size_N=100, name='nonconvex_underparam_run3') 
-    # generate_sgd_traj_and_visuals(model, lr=.4, plot_range=[[-2, -2], [2,2]])
-
-    # theta_init = torch.tensor([-1.9, 1.9], requires_grad=True)  # Initial values 
-    # model = NonConvexProblemModel(theta_init, random_seed=315, theta_star = [-1, -1], batch_size=10, dataset_size_N=100, name='nonconvex_underparam_run4') 
-    # generate_sgd_traj_and_visuals(model, lr=.4, plot_range=[[-2, -2], [2,2]])
-
-
 
 # %%
 class LLMSGDKernelInfer():
@@ -338,13 +311,44 @@ class LSKI_nonconvex_underparam_run4(LLMSGDKernelInfer):
         generate_sgd_traj_and_visuals(self.model, lr=.4, plot_range=[[-2, -2], [2,2]])
 
 
-#%%
-lski = LSKI_convex_underparam()
-lski.generate_data()
-#%%
-lski.infer_kernels()
-#%%
-lski.infer_sgd()
+# %%
+if __name__ == "__main__":
 
-#%%
-#%%
+    #%%
+    lski = LSKI_convex_underparam()
+    lski.generate_data()
+    #%%
+    lski.infer_kernels()
+    #%%
+    lski.infer_sgd(infer_init_thetas=[1.5, 2.5])
+    
+    traj = np.load('llm-optim/output/convex_underparam/inferred_sgd/sgd_infer_trajectory.npz', allow_pickle=True)['arr_0'].item()['thetas']
+    print(traj.shape)
+    plot_progressive_trajectory(torch.from_numpy(traj), model, frame_dirname='sgdrunframes3')
+
+    #%%
+    #%%
+
+    # Initialize the problem
+    theta_init = torch.tensor([0.0, 0.5], requires_grad=True)  # Initial values 
+
+    # model = ConvexProblemModel(theta_init, random_seed=315, theta_star = [4, 3], batch_size=10, dataset_size_N=100, name='convex_underparam') 
+    # model.generate_sgd_traj_and_visuals()
+    # model = ConvexProblemModel(theta_init, random_seed=315, theta_star = [4, 3], batch_size=1, dataset_size_N=2, name='convex_overparam') 
+    # model.generate_sgd_traj_and_visuals()
+
+    # theta_init = torch.tensor([1.0, -1.5], requires_grad=True)  # Initial values 
+    # model = NonConvexProblemModel(theta_init, random_seed=315, theta_star = [-1, -1], batch_size=10, dataset_size_N=100, name='nonconvex_underparam') 
+    # generate_sgd_traj_and_visuals(model, lr=.4, plot_range=[[-2, -2], [2,2]])
+
+    # theta_init = torch.tensor([1.5, -1.], requires_grad=True)  # Initial values 
+    # model = NonConvexProblemModel(theta_init, random_seed=315, theta_star = [-1, -1], batch_size=10, dataset_size_N=100, name='nonconvex_underparam_run2') 
+    # generate_sgd_traj_and_visuals(model, lr=.4, plot_range=[[-2, -2], [2,2]])
+
+    # theta_init = torch.tensor([1.9, -.5], requires_grad=True)  # Initial values 
+    # model = NonConvexProblemModel(theta_init, random_seed=315, theta_star = [-1, -1], batch_size=10, dataset_size_N=100, name='nonconvex_underparam_run3') 
+    # generate_sgd_traj_and_visuals(model, lr=.4, plot_range=[[-2, -2], [2,2]])
+
+    # theta_init = torch.tensor([-1.9, 1.9], requires_grad=True)  # Initial values 
+    # model = NonConvexProblemModel(theta_init, random_seed=315, theta_star = [-1, -1], batch_size=10, dataset_size_N=100, name='nonconvex_underparam_run4') 
+    # generate_sgd_traj_and_visuals(model, lr=.4, plot_range=[[-2, -2], [2,2]])
