@@ -12,7 +12,7 @@ tokenizer = Tokenizer(None)
 
 def param_to_state(param_val, init_min, init_max):
     data = np.array([param_val, init_min, init_max])
-    data = tokenizer._rescale(data)
+    data = tokenizer.rescale(data)
     data = np.round(data, tokenizer.n_digits - 1)
     state = np.zeros(1000, dtype=float)
     state[data[0]] = 1
@@ -63,7 +63,9 @@ def state_mat_to_param(state_mat, kernels_dict, model_state_dict):
             # j1, j2 are indices in the original shape
             j1 = i // model_state_dict[key].shape[1]
             j2 = i % model_state_dict[key].shape[1]
-            params_mat[key][j1][j2] = state_to_param(state_mat[:, counter], kernels_dict[f"{key}_{i}"]["init_min"], kernels_dict[f"{key}_{i}"]["init_max"])
+            params_mat[key][j1][j2] = state_to_param(
+                state_mat[:, counter], kernels_dict[f"{key}_{i}"]["init_min"], kernels_dict[f"{key}_{i}"]["init_max"]
+            )
             counter += 1
     return params_mat
 
@@ -77,7 +79,9 @@ def load_params(model_state_dict, kernels_dict):
     counter = 0
     for key in model_state_dict.keys():
         for i, param in enumerate(model_state_dict[key].flatten()):
-            state = param_to_state(param, kernels_dict[f"{key}_{i}"]["init_min"], kernels_dict[f"{key}_{i}"]["init_max"])
+            state = param_to_state(
+                param, kernels_dict[f"{key}_{i}"]["init_min"], kernels_dict[f"{key}_{i}"]["init_max"]
+            )
             state_mat[:, counter] = state
             counter += 1
     return state_mat
@@ -94,7 +98,7 @@ if __name__ == "__main__":
     # Load initial checkpoint
     ckpt = torch.load(args.init_ckpt_path)
 
-    # TODO import MLP and uncomment this 
+    # TODO import MLP and uncomment this
     # model = MLP()
     # model.load_state_dict(ckpt["model_state_dict"])
 

@@ -87,13 +87,13 @@ class HierarchyPDF:
             else:
                 prob_state = None
             next_level_states.append(prob_state)
-        
+
         # set missing distributions as uniform
         max_dim = max(state.shape[0] for state in next_level_states if state is not None)
         for i, state in enumerate(next_level_states):
             if state is None:
-                next_level_states[i] = np.ones((max_dim, )) / max_dim
-        
+                next_level_states[i] = np.ones((max_dim,)) / max_dim
+
         next_level_states = np.stack(next_level_states)
 
         unraveled_probability = (self.prob[:, None] * next_level_states).flatten()
@@ -236,7 +236,9 @@ class HierarchyPDF:
             s_traj = s_traj[:-1]
 
         with torch.no_grad():
-            probs, kv_cache_new, _ = model.forward_probs(s_traj, good_tokens, kv_cache=kv_cache, use_cache=True, rescale=False)
+            probs, kv_cache_new, _ = model.forward_probs(
+                s_traj, good_tokens, kv_cache=kv_cache, use_cache=True, rescale=False
+            )
 
         return probs, kv_cache_new
 

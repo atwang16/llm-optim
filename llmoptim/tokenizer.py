@@ -18,21 +18,22 @@ class Tokenizer:
             clean_up_tokenization_space=clean_up_tokenization_space,
         )
 
-    def _rescale(self, data: np.ndarray):
-        return (data - np.min(data)) / (np.max(data) - np.min(data)) * (self.max - self.min) + self.min
+    def rescale(self, data: np.ndarray):
+        new_range = (data - np.min(data)) / (np.max(data) - np.min(data)) * (self.max - self.min) + self.min
+        return (new_range * 10 ** (self.n_digits - 1)).astype(int)
 
-    def _to_string(self, data: np.ndarray):
-        def to_string_num(num: float) -> str:
-            num *= 10 ** (self.n_digits - 1)
-            return "".join(letter for letter in f"{int(num):0{self.n_digits}d}")
-        return ",".join(to_string_num(value) for value in data) + ","
+    def to_string(self, data: np.ndarray):
+        # def to_string_num(num: float) -> str:
+        #     num *= 10 ** (self.n_digits - 1)
+        #     return "".join(letter for letter in f"{int(num):0{self.n_digits}d}")
+        return ",".join(str(value) for value in data) + ","
 
     def __call__(self, sequence: str, return_tensors: str = None, rescale: bool = True):
         if rescale:
             data = np.array(list(map(float, sequence.split(",")[:-1])))
-            data = self._rescale(data / 100)
+            data = self.rescale(data / 100)
             data = np.round(data, self.n_digits - 1)
-            data_string = self._to_string(data)
+            data_string = self.to_string(data)
         else:
             data_string = sequence
         # data_tensor = torch.tensor([self.tokenizer(data_string[i], return_tensors=return_tensors).input_ids[0][1] for i in range(len(data_string))], dtype=torch.long)

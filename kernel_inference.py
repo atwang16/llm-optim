@@ -33,20 +33,33 @@ def load_ckpts_into_seq(ckpts_path):
     return sequences
 
 
-def get_pdf(sequence: np.ndarray, llama: Llama, good_tokens: str, output_file: str = None):
-    """_summary_
+def get_pdf(
+    sequence: np.ndarray,
+    llama: Llama,
+    good_tokens: str,
+    output_file: str = None,
+    refinement_depth: int = 1,
+    mode: str = "neighbor",
+    str_delimiter: str = ",",
+) -> list[HierarchyPDF]:
+    """Compute hierarchical PDF for each step in sequence.
 
-    :param sequence: _description_
-    :param llama: _description_
-    :param good_tokens: _description_
-    :param output_dir: _description_, defaults to None
+    :param sequence: np.ndarray of integer sequence states between 0 and 10^k (in practice, should be scaled to
+    roughly 150 to 850).
+    :param llama: LLM model for predicting sequences
+    :param good_tokens: IDs of tokens to get probabilities for ("0123456789")
+    :param output_file: path to output file for PDFs, defaults to None
+    :param refinement_depth: depth of refinement for hierarchical PDF (for coarse bins), defaults to 1 (only top-level
+    bin)
+    :param mode: "neighbor" or "all" for refining coarse bins around main prediction, defaults to "neighbor"
+    :param str_delimiter: delimiter for string version of sequence, defaults to ","
+    :return: list of hierarchical PDFs for each step in sequence
     """
     # Get HierarchyPDF
     # If output_dir is not None, save probs into npy (this way we can split jobs for even more distributed computing)
     # build sequence string
-    sequence = llama.tokenizer._rescale(sequence)
-    sequence_str = llama.tokenizer._to_string(sequence)
-    delimiters = [i for i, char in enumerate(sequence_str) if char == ","]
+    sequence_str = llama.tokenizer.to_string(sequence)
+    delimiters = [i for i, char in enumerate(sequence_str) if char == str_delimiter]
 
     probs, kv_cache, _ = llama.forward_probs(sequence_str, good_tokens, use_cache=True)
     start_idx = 0
@@ -59,10 +72,10 @@ def get_pdf(sequence: np.ndarray, llama: Llama, good_tokens: str, output_file: s
         pdf.refine(
             llama,
             s_traj=sequence_str[:delim_idx],
-            refinement_depth=1,
+            refinement_depth=refinement_depth,
             kv_cache=kv_cache_trimmed,
             good_tokens=good_tokens,
-            mode="neighbor",
+            mode=mode,
         )
         pdf_list.append(pdf)
 
@@ -75,8 +88,8 @@ def get_pdf(sequence: np.ndarray, llama: Llama, good_tokens: str, output_file: s
     return pdf_list
 
 
-def get_kernel(pdfs: list[HierarchyPDF], sequence: np.ndarray, output_dir: str = None):
-    """_summary_
+def get_kernel(pdfs: list[HierarchyPDF], sequence: np.ndarray, output_file: str = None):
+    """Compute transition kernel from hierarchical PDFs for each parameter
 
     :param pdfs: list of HierarchyPDF objects representing P^{(i,i)}(X_{t+1}|X_t = sequence[t])
     :param sequence: np.ndarray of integer sequence states between 0 and 10^k (in practice, should be scaled to
@@ -88,8 +101,6 @@ def get_kernel(pdfs: list[HierarchyPDF], sequence: np.ndarray, output_dir: str =
     assert len(pdfs) == sequence.shape[0]
 
     # Get kernel
-    # If output_dir is not None, save kernel into npz
-    # pdf = param_dict["pdf"]
     pdf_unrolled = []
     for pdf in pdfs:
         pdf_unrolled.append(pdf.get_prob())  # (10^prec,)
@@ -101,8 +112,8 @@ def get_kernel(pdfs: list[HierarchyPDF], sequence: np.ndarray, output_dir: str =
     sparse_prob[sequence, :] = pdf_unrolled
 
     kernel = fill_rows(sparse_prob)
-    if output_dir is not None:
-        np.savez(output_dir, kernel=kernel, init_min=param_dict["init_min"], init_max=param_dict["init_max"])
+    if output_file is not None:
+        np.savez(output_file, kernel=kernel, init_min=sequence.min(), init_max=sequence.max())
     return kernel
 
 
@@ -110,7 +121,8 @@ def load_dummy(pkl_path):
     pkl = np.load(pkl_path, allow_pickle=True)
     sequence = pkl["full_series"]
     # Back to floats
-    sequence = np.array([float(num) / 100 for num in sequence.split(",")[:-1]])
+    sequence = np.array([int(num) for num in sequence.split(",")[:-1]])
+    sequence = sequence[:100]
     return {"full_series": sequence}
 
 
@@ -119,27 +131,33 @@ if __name__ == "__main__":
     parser.add_argument("--ckpts_path", type=str, required=False, help="Path to directory containing the checkpoints")
     parser.add_argument("--llama_v", choices=[2, 3], type=int, required=True, help="Version of Llama model")
     parser.add_argument(
-        "--output_dir", type=str, required=False, help="Path to directory to save inferred PDFs and kernels"
+        "--output_dir", type=str, required=True, help="Path to directory to save inferred PDFs and kernels"
     )
     parser.add_argument("--load", action="store_true", help="if true, load PDFs from output_dir if possible")
+    parser.add_argument("--use-dummy", dest="use_dummy", action="store_true", help="Use dummy data for testing")
     args = parser.parse_args()
 
-    sequences = load_ckpts_into_seq(args.ckpts_path)
-
     llama = Llama(llama_v=args.llama_v)
+
+    if args.use_dummy:
+        sequences = load_dummy("tmp/brownian_motion_0.pkl")
+        rescaled_sequences = sequences
+    else:
+        sequences = load_ckpts_into_seq(args.ckpts_path)
+        rescaled_sequences = {
+            param_name: llama.tokenizer.rescale(param_seq) for param_name, param_seq in sequences.items()
+        }
+
     good_tokens_str = list("0123456789")
     good_tokens = [llama.llama_tokenizer.convert_tokens_to_ids(token) for token in good_tokens_str]
 
     # Calculate PDFs
     pdf_dict = {}
     # TODO: parallelize??
-    for param_name, param_seq in sequences.items():
+    os.makedirs(os.path.join(args.output_dir, "pdfs"), exist_ok=True)
+    for param_name, param_seq in rescaled_sequences.items():
         # Abstraction for easy parallelization
-        # param_seq = np.round(param_seq * 100).astype(
-        #     int
-        # )  # TODO: may not be needed in general, depends on scaling of values
-
-        pdf_path = os.path.join(args.output_dir, f"{param_name}_pdf.pkl")
+        pdf_path = os.path.join(args.output_dir, "pdfs", f"{param_name}.pkl")
         if args.load and os.path.exists(pdf_path):
             with open(pdf_path, "rb") as pdf_file:
                 pdfs = pickle.load(pdf_file)["pdf"]
@@ -157,10 +175,15 @@ if __name__ == "__main__":
     # Calculate kernels
     kernels_dict = {}
     # TODO: parallelize??
+    os.makedirs(os.path.join(args.output_dir, "kernel"), exist_ok=True)
     for param_name, param_dict in pdf_dict.items():
         # Abstraction for easy parallelization
-        # output_dir = f"{args.output_dir}/kernel/{param_name}.npy"
-        kernel = get_kernel(param_dict["pdf"], param_dict["states"], output_dir=None)
+        output_file = os.path.join(args.output_dir, "kernel", f"{param_name}.npy")
+        kernel = get_kernel(
+            param_dict["pdf"],
+            param_dict["states"],
+            output_file=output_file,
+        )
         kernels_dict[param_name] = kernel
 
     # TODO: Add .get() loop if parallelized to populate kernels_dict
