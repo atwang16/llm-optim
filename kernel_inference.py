@@ -18,8 +18,7 @@ def load_ckpts_into_seq(ckpts_path):
     # Returns a dict {"{param_name}": np.ndarray({n_ckpts}), ...},
     # where n_ckpts practically is time series length we provide as an input
     # remember to account for param_name being actually {layer_name}_{param_flattened_index}
-    print("DEBUG< LOADING 5 CHECKPOINT ONLY !!!!!!!!\n\n\n\n")
-    model_state_dicts = [torch.load(ckpt_path) for ckpt_path in sorted(glob(f"{ckpts_path}/*")[:5])]
+    model_state_dicts = [torch.load(ckpt_path) for ckpt_path in sorted(glob(f"{ckpts_path}/*"))]
     param_specs = [(param_name, param_mat.size()) for param_name, param_mat in model_state_dicts[0].items()]
     sequences = {}
     for param_spec in param_specs:
@@ -88,7 +87,7 @@ def get_pdf(
     return pdf_list
 
 
-def get_kernel(pdfs: list[HierarchyPDF], sequence: np.ndarray, output_file: str = None):
+def get_kernel(pdfs: list[HierarchyPDF], sequence: np.ndarray, init_min: float, init_max: float, output_file: str = None):
     """Compute transition kernel from hierarchical PDFs for each parameter
 
     :param pdfs: list of HierarchyPDF objects representing P^{(i,i)}(X_{t+1}|X_t = sequence[t])
@@ -113,7 +112,7 @@ def get_kernel(pdfs: list[HierarchyPDF], sequence: np.ndarray, output_file: str 
 
     kernel = fill_rows(sparse_prob)
     if output_file is not None:
-        np.savez(output_file, kernel=kernel, init_min=sequence.min(), init_max=sequence.max())
+        np.savez(output_file, kernel=kernel, init_min=init_min, init_max=init_max)
     return kernel
 
 
@@ -155,7 +154,7 @@ if __name__ == "__main__":
     pdf_dict = {}
     # TODO: parallelize??
     os.makedirs(os.path.join(args.output_dir, "pdfs"), exist_ok=True)
-    for param_name, param_seq in rescaled_sequences.items():
+    for idx, (param_name, param_seq) in enumerate(rescaled_sequences.items()):
         # Abstraction for easy parallelization
         pdf_path = os.path.join(args.output_dir, "pdfs", f"{param_name}.pkl")
         if args.load and os.path.exists(pdf_path):
@@ -166,8 +165,8 @@ if __name__ == "__main__":
         pdf_dict[param_name] = {
             "pdf": pdfs,
             "states": param_seq,
-            "init_min:": param_seq.min(),
-            "init_max": param_seq.max(),
+            "init_min": list(sequences.values())[idx].min(),
+            "init_max": list(sequences.values())[idx].max(),
         }
 
     # TODO: Add .get() loop if parallelized to populate pdf_dict
@@ -178,10 +177,12 @@ if __name__ == "__main__":
     os.makedirs(os.path.join(args.output_dir, "kernel"), exist_ok=True)
     for param_name, param_dict in pdf_dict.items():
         # Abstraction for easy parallelization
-        output_file = os.path.join(args.output_dir, "kernel", f"{param_name}.npy")
+        output_file = os.path.join(args.output_dir, "kernel", f"{param_name}.npz")
         kernel = get_kernel(
             param_dict["pdf"],
             param_dict["states"],
+            param_dict["init_min"],
+            param_dict["init_max"],
             output_file=output_file,
         )
         kernels_dict[param_name] = kernel
