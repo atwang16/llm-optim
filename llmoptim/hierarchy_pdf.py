@@ -3,8 +3,7 @@ from copy import deepcopy
 import numpy as np
 import torch
 import torch.nn as nn
-
-from llmoptim.utils import str_seq_to_int, int_seq_to_str
+from llmoptim.utils import int_seq_to_str, str_seq_to_int
 
 
 class HierarchyCache:
@@ -233,9 +232,11 @@ class HierarchyPDF:
         :param kv_cache: key-value cache of running model.forward(S_traj)
         """
         s_traj = int_seq_to_str(states)
+        if len(states[-1]) != 3:
+            s_traj = s_traj[:-1]
 
         with torch.no_grad():
-            probs, kv_cache_new, _ = model.forward_probs(s_traj, good_tokens, kv_cache=kv_cache, use_cache=True)
+            probs, kv_cache_new, _ = model.forward_probs(s_traj, good_tokens, kv_cache=kv_cache, use_cache=True, rescale=False)
 
         return probs, kv_cache_new
 

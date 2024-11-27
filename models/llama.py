@@ -23,8 +23,10 @@ class Llama(nn.Module):
         flash_attention: bool = False,
         dtype=torch.float16,
         llama_v: [2, 3] = 3,
+        device="cuda:0",
     ):
         super().__init__()
+        self.device = device
         if _4bit:
             bnb_config = BitsAndBytesConfig(
                 load_in_4bit=True,
@@ -48,7 +50,7 @@ class Llama(nn.Module):
             self.model = LlamaForCausalLM.from_pretrained(
                 "NousResearch/Hermes-3-Llama-3.1-8B",
                 torch_dtype=dtype,
-                device_map="auto",
+                device_map=self.device,
                 quantization_config=bnb_config,
                 trust_remote_code=True,
                 attn_implementation=attn_type,
@@ -60,7 +62,7 @@ class Llama(nn.Module):
             self.model = AutoModelForCausalLM.from_pretrained(
                 "NousResearch/Nous-Hermes-llama-2-7b",
                 torch_dtype=dtype,
-                device_map="auto",
+                device_map=self.device,
                 quantization_config=bnb_config,
                 trust_remote_code=True,
                 attn_implementation=attn_type,
@@ -77,7 +79,7 @@ class Llama(nn.Module):
         """
         This method is for text generation, not llmoptim
         """
-        input_ids = self.llama_tokenizer(prompt, return_tensors="pt").input_ids.to("cuda")
+        input_ids = self.llama_tokenizer(prompt, return_tensors="pt").input_ids.to(self.device)
         generated_ids = self.model.generate(
             input_ids,
             max_new_tokens=max_new_tokens,
@@ -98,7 +100,7 @@ class Llama(nn.Module):
     def forward_response(
         self, prompt, max_new_tokens=128, temperature=1.0, top_p=1.0, top_k=50, repetition_penalty=1.0, do_sample=True
     ):
-        input_ids = self.tokenizer(prompt, return_tensors="pt").input_ids.to("cuda")
+        input_ids = self.tokenizer(prompt, return_tensors="pt").input_ids.to(self.device)
         generated_ids = self.model.generate(
             input_ids,
             max_new_tokens=max_new_tokens,
@@ -119,14 +121,14 @@ class Llama(nn.Module):
     def forward_state(
         self, prompt, good_tokens, state_len, temperature=1.0, kv_cache: HierarchyCache = None, use_cache: bool = False
     ):
-        input_ids = self.tokenizer(prompt, return_tensors="pt").input_ids.to("cuda")
+        input_ids = self.tokenizer(prompt, return_tensors="pt").input_ids.to(self.device)
         new_state = ""
         for _ in range(state_len):
             with torch.no_grad():
                 out = self.model(
                     input_ids,
                     use_cache=use_cache,
-                    past_key_values=kv_cache.cuda().to_tuple() if kv_cache is not None and use_cache else None,
+                    past_key_values=kv_cache.to(self.device).to_tuple() if kv_cache is not None and use_cache else None,
                 )
             logit_mat = out["logits"]
             kv_cache = out["past_key_values"] if kv_cache is not None and use_cache else None
@@ -135,7 +137,7 @@ class Llama(nn.Module):
             ).numpy()
             next_token = good_tokens[np.argmax(probs)]
             new_state += self.tokenizer.decode([next_token])[0]
-            input_ids = torch.cat([input_ids, torch.tensor([[next_token]], dtype=torch.long).to("cuda")], dim=-1)
+            input_ids = torch.cat([input_ids, torch.tensor([[next_token]], dtype=torch.long).to(self.device)], dim=-1)
         return (
             new_state,
             (
@@ -145,13 +147,13 @@ class Llama(nn.Module):
             ),
         )
 
-    def forward_probs(self, prompt, good_tokens, kv_cache: HierarchyCache = None, use_cache=True):
-        input_ids = self.tokenizer(prompt, return_tensors="pt", rescale=False).input_ids.to("cuda")
+    def forward_probs(self, prompt, good_tokens, kv_cache: HierarchyCache = None, use_cache=True, rescale=True):
+        input_ids = self.tokenizer(prompt, return_tensors="pt", rescale=rescale).input_ids.to(self.device)
         with torch.no_grad():
             out = self.model(
                 input_ids,
                 use_cache=use_cache,
-                past_key_values=kv_cache.cuda().to_tuple() if kv_cache is not None and use_cache else None,
+                past_key_values=kv_cache.to(self.device).to_tuple() if kv_cache is not None and use_cache else None,
             )
         logit_mat = out["logits"]
         kv_cache = HierarchyCache(out["past_key_values"]).cpu()
