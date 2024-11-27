@@ -2,6 +2,7 @@ import argparse
 import multiprocessing as mp
 import os
 import pickle
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import partial
 from glob import glob
 
@@ -127,10 +128,9 @@ def load_dummy(pkl_path):
     return {"full_series": sequence}
 
 
-def process_pdf(args, llama, good_tokens, param_tuple):
-    param_name, param_seq = param_tuple
-    pdf_path = os.path.join(args.output_dir, "pdfs", f"{param_name}.pkl")
-    if args.load and os.path.exists(pdf_path):
+def compute_pdf_parallel(param_name, param_seq, llama, good_tokens, output_dir, load_existing):
+    pdf_path = os.path.join(output_dir, "pdfs", f"{param_name}.pkl")
+    if load_existing and os.path.exists(pdf_path):
         with open(pdf_path, "rb") as pdf_file:
             pdfs = pickle.load(pdf_file)["pdf"]
     else:
@@ -138,14 +138,13 @@ def process_pdf(args, llama, good_tokens, param_tuple):
     return param_name, {
         "pdf": pdfs,
         "states": param_seq,
-        "init_min": sequences[param_name].min(),
-        "init_max": sequences[param_name].max(),
+        "init_min": param_seq.min(),
+        "init_max": param_seq.max(),
     }
 
-
-def process_kernel(args, param_tuple):
-    param_name, param_dict = param_tuple
-    output_file = os.path.join(args.output_dir, "kernel", f"{param_name}.npz")
+# Parallelized kernel computation
+def compute_kernel_parallel(param_name, param_dict, output_dir):
+    output_file = os.path.join(output_dir, "kernel", f"{param_name}.npz")
     kernel = get_kernel(
         param_dict["pdf"],
         param_dict["states"],
@@ -160,12 +159,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--ckpts_path", type=str, required=False, help="Path to directory containing the checkpoints")
     parser.add_argument("--llama_v", choices=[2, 3], type=int, required=True, help="Version of Llama model")
-    parser.add_argument(
-        "--output_dir", type=str, required=True, help="Path to directory to save inferred PDFs and kernels"
-    )
+    parser.add_argument("--output_dir", type=str, required=True, help="Path to directory to save inferred PDFs and kernels")
     parser.add_argument("--load", action="store_true", help="if true, load PDFs from output_dir if possible")
     parser.add_argument("--use-dummy", dest="use_dummy", action="store_true", help="Use dummy data for testing")
-    parser.add_argument("--n_threads", type=int, default=mp.cpu_count(), help="Number of threads for parallel processing")
+    parser.add_argument("--n_threads", type=int, default=4, help="Number of threads for parallel processing")
     args = parser.parse_args()
 
     llama = Llama(llama_v=args.llama_v)
@@ -182,14 +179,31 @@ if __name__ == "__main__":
     good_tokens_str = list("0123456789")
     good_tokens = [llama.llama_tokenizer.convert_tokens_to_ids(token) for token in good_tokens_str]
 
+    # Calculate PDFs in parallel
+    pdf_dict = {}
     os.makedirs(os.path.join(args.output_dir, "pdfs"), exist_ok=True)
-    with mp.Pool(args.n_threads) as pool:
-        process_pdf_partial = partial(process_pdf, args, llama, good_tokens)
-        pdf_results = pool.map(process_pdf_partial, rescaled_sequences.items())
-    pdf_dict = dict(pdf_results)
+    
+    with ThreadPoolExecutor(max_workers=args.n_threads) as executor:
+        futures = [
+            executor.submit(compute_pdf_parallel, param_name, param_seq, llama, good_tokens,
+                            args.output_dir, args.load)
+            for param_name, param_seq in rescaled_sequences.items()
+        ]
+        
+        for future in tqdm(as_completed(futures), total=len(futures), desc="Computing PDFs"):
+            param_name, result = future.result()
+            pdf_dict[param_name] = result
 
+    # Calculate kernels in parallel
+    kernels_dict = {}
     os.makedirs(os.path.join(args.output_dir, "kernel"), exist_ok=True)
-    with mp.Pool(args.n_threads) as pool:
-        process_kernel_partial = partial(process_kernel, args)
-        kernel_results = pool.map(process_kernel_partial, pdf_dict.items())
-    kernels_dict = dict(kernel_results)
+    
+    with ThreadPoolExecutor(max_workers=args.n_threads) as executor:
+        futures = [
+            executor.submit(compute_kernel_parallel, param_name, param_dict, args.output_dir)
+            for param_name, param_dict in pdf_dict.items()
+        ]
+        
+        for future in tqdm(as_completed(futures), total=len(futures), desc="Computing Kernels"):
+            param_name, kernel = future.result()
+            kernels_dict[param_name] = kernel
