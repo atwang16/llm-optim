@@ -134,9 +134,7 @@ if __name__ == "__main__":
     pdf_dict = {}
     # TODO: parallelize??
     for param_name, param_seq in sequences.items():
-        param_seq = param_seq[:100]
         # Abstraction for easy parallelization
-        # output_dir = f"{args.output_dir}/pdf/{param_name}.npy"
         # param_seq = np.round(param_seq * 100).astype(
         #     int
         # )  # TODO: may not be needed in general, depends on scaling of values
