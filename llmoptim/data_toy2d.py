@@ -13,16 +13,29 @@ import imageio
 # chdir to the parent dir of this file
 os.chdir(os.path.dirname(os.path.abspath(__file__)) + "/..")
 print(os.getcwd())
+
+# Create a directory for saving checkpoints
+CKPT_DIR = "checkpoints_2dtoy"
+os.makedirs(CKPT_DIR, exist_ok=True)
+OUTPUT_DIR = "dataprep_output/2dtoy/"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
 #%%
 # Define the convex function
 class ConvexProblemModel(torch.nn.Module):
-    def __init__(self, init_params, random_seed=314, theta_star = [4, 3], batch_size=10, dataset_size_N=100):
+    def __init__(self, init_params, random_seed=314, theta_star = [4, 3], batch_size=10, dataset_size_N=100, name=''):
         super(ConvexProblemModel, self).__init__()
         self.__dict__.update(locals()) # save all arguments to self
-        self.thetas = torch.nn.Parameter(torch.tensor(init_params)[:,None], requires_grad=True)
+        self.thetas = torch.nn.Parameter(torch.tensor(init_params).reshape(-1,1), requires_grad=True)
 
         # Generate data
         self.generate_data(theta_star, dataset_size_N)
+
+        self.output_dir = os.path.join(OUTPUT_DIR, name)
+        self.ckpt_dir   = os.path.join(self.output_dir, 'ckpts/')
+        self.visual_dir = os.path.join(self.output_dir, 'visuals/')
+        os.makedirs(self.ckpt_dir, exist_ok=True)
+        os.makedirs(self.visual_dir, exist_ok=True)
 
     def get_random_batch(self, batch_size=None):
         if batch_size is None:
@@ -31,15 +44,15 @@ class ConvexProblemModel(torch.nn.Module):
         return torch.tensor(self.x[indices], dtype=torch.float32), torch.tensor(self.y[indices], dtype=torch.float32)
     def generate_data(self, theta_star, dataset_size_N):
         self.x = torch.randn(dataset_size_N, 2)  # 100 points in R^2, normal distribution (mean=0, std=1)
-        self.theta_star = torch.tensor(theta_star, dtype=torch.float32)  # Ground truth
-        self.y = self.x @ self.theta_star + torch.randn(dataset_size_N) * 0.5  # Add small noise
+        self.theta_star = torch.tensor(theta_star, dtype=torch.float32).reshape(-1,1)  # Ground truth
+        self.y = self.x @ self.theta_star + torch.randn(dataset_size_N, 1) * 0.5  # Add small noise
     def get_loss_i(self, x=None, y=None, thetas=None):
         if thetas is None:
             thetas = self.thetas
         if x is None or y is None:
             x = self.x # use all data
             y = self.y # use all data
-        return .5*((x@thetas - y[:,None])**2) # (m, thetas.shape[1])
+        return .5*((x@thetas - y)**2) # (m, thetas.shape[1])
     def forward(self, x=None, y=None, thetas=None):
         '''
             x: torch.tensor of shape (m, 2) where m is the batch size
@@ -53,26 +66,23 @@ class ConvexProblemModel(torch.nn.Module):
         loss =  loss_i.mean() 
         # f(xi, θ) = 1/2 ( ||xi-θ|| − y)^2
         return loss
+
+    
 class NonConvexProblemModel(ConvexProblemModel):
     def generate_data(self, theta_star, dataset_size_N):
-        self.x = torch.randn(dataset_size_N, 2)  # 100 points in R^2, normal distribution (mean=0, std=1)
-        self.theta_star = torch.tensor(theta_star, dtype=torch.float32)[:,None]  # Ground truth
-        self.y = self.x @ self.theta_star + torch.randn(dataset_size_N, 1) * 0.5  # Add small noise
-        self.y = self.y + 0.5 * torch.sin(self.x[:,0:1]) # Add non-convexity
+        self.x = torch.randn(dataset_size_N, 1)  # 100 points in R^2, normal distribution (mean=0, std=1)
+        self.theta_star = torch.tensor(theta_star, dtype=torch.float32).reshape(-1,1)  # Ground truth
+        self.y = self.theta_star[0,0] * torch.sin(self.theta_star[1,0] * self.x) + 0.2 * torch.randn_like(self.x)  # Add noise
     def get_loss_i(self, x=None, y=None, thetas=None):
         if thetas is None:
             thetas = self.thetas
         if x is None or y is None:
             x = self.x # use all data
             y = self.y # use all data
-
-        pred = thetas[0] * torch.sin(thetas[1]*x)
+        pred = torch.sin(x@thetas[1:2,:]) * thetas[0:1,:] # (m, thetas.shape[1])
         f_theta = .5* ( ( pred - y )**2 )
         return f_theta
     
-# Create a directory for saving checkpoints
-ckpt_dir = "checkpoints_2dtoy"
-os.makedirs(ckpt_dir, exist_ok=True)
 
 def generate_sgd_trajectory(model, num_steps=50, lr=0.1):
     # Define optimizer
@@ -86,11 +96,11 @@ def generate_sgd_trajectory(model, num_steps=50, lr=0.1):
             loss.backward()
             optimizer.step()
         # Save checkpoint
-        ckpt_path = os.path.join(ckpt_dir, f"step_{step:03d}.pth")
+        ckpt_path = os.path.join(f"{model.ckpt_dir}/step_{step:03d}.pth")
         torch.save(model.state_dict(), ckpt_path)
 
         print(f"Step {step:03d}: params = {list(model.parameters())}, loss = {loss.item():.4f}")
-    print(f"Optimization finished. Checkpoints saved in '{ckpt_dir}'")
+    print(f"Optimization finished. Checkpoints saved in '{model.ckpt_dir}'")
     return [list(model.parameters())]
     # Example usage
     # Initialize the problem
@@ -98,7 +108,6 @@ def generate_sgd_trajectory(model, num_steps=50, lr=0.1):
     # model = ConvexProblemModel(x)
     # generate_sgd_trajectory(model )
 
-#%%
 # Function to compute grid values of the target function
 def compute_grid_values(model, x_range=[0,2], y_range=[0,3], resolution=100):
     x_vals = torch.linspace(x_range[0], x_range[1], resolution)
@@ -121,7 +130,7 @@ def compute_grid_values(model, x_range=[0,2], y_range=[0,3], resolution=100):
     # ax.imshow(Z, origin='lower', extent=(0, 2, 0, 3))
     # plt.show()
 
-def load_ckpt_to_traj(ckpt_dir = ckpt_dir):
+def load_ckpt_to_traj(ckpt_dir):
     import glob 
     ckpt_files = glob.glob(ckpt_dir + '/*.pth')
     # sort by step
@@ -138,14 +147,22 @@ def load_ckpt_to_traj(ckpt_dir = ckpt_dir):
 # %%
 
 # Function to plot and save frames progressively
-def plot_progressive_trajectory(trajectory, model, folder='assets/frames', margin=0.4, cmap='viridis'):
-    os.makedirs(folder, exist_ok=True)
+def plot_progressive_trajectory(trajectory, model, plot_range=None, margin=0.4, cmap='viridis'):
+    save_dir = model.visual_dir + '/frames/'
+    os.makedirs(save_dir, exist_ok=True)
     trajectory = trajectory[..., 0 ].clone()
-    minr, maxr = trajectory.min(axis=0)[0].numpy(), trajectory.max(axis=0)[0].numpy()
+    if plot_range is None:
+        minr, maxr = trajectory.min(axis=0)[0].numpy(), trajectory.max(axis=0)[0].numpy()
+        x_range = [minr[0] - margin, maxr[0] + margin]
+        y_range = [minr[1] - margin, maxr[1] + margin]
+    else:
+        minr, maxr = plot_range
+        x_range = [minr[0], maxr[0] ]
+        y_range = [minr[1], maxr[1] ]
     X, Y, Z = compute_grid_values(
         model, 
-        x_range=[minr[0] - margin, maxr[0] + margin], 
-        y_range=[minr[1] - margin, maxr[1] + margin]
+        x_range=x_range, 
+        y_range=y_range
     )
     
     # Generate frames
@@ -158,19 +175,21 @@ def plot_progressive_trajectory(trajectory, model, folder='assets/frames', margi
         ax.set_ylabel(r'$\theta_2$')
         ax.set_title('SGD Trajectory')
         ax.legend()
-        plt.savefig(f'{folder}/frame_{i:03d}.png')
+        plt.savefig(f'{save_dir}/frame_{i:03d}.png')
         plt.close(fig)
     
-    print(f"Frames saved in '{folder}'.")
+    print(f"Frames saved in '{save_dir}'.")
 
 # Convert frames to a GIF
-def create_gif(folder='assets/frames', output_file='assets/toy2d_gt_output.gif', duration=100):
-    frames = [Image.open(os.path.join(folder, f)) for f in sorted(os.listdir(folder)) if f.endswith('.png')]
+def create_gif(visual_dir, duration=100):
+    frames_dir = visual_dir + '/frames/'
+    output_file = visual_dir + '/sgd_trajectory.gif'
+    frames = [Image.open(os.path.join(frames_dir, f)) for f in sorted(os.listdir(frames_dir)) if f.endswith('.png')]
     frames[0].save(output_file, save_all=True, append_images=frames[1:], duration=duration, loop=0)
     print(f"GIF saved as '{output_file}'.")
 
 # %%
-def create_mp4_from_frames(folder='assets/frames', output_file='assets/toy2d_gt_output.mp4', fps=10):
+def create_mp4_from_frames(visual_dir, fps=10):
     """
     Create an MP4 video from a folder of image frames.
     Args:
@@ -178,9 +197,11 @@ def create_mp4_from_frames(folder='assets/frames', output_file='assets/toy2d_gt_
         output_file (str): Path to save the MP4 video.
         fps (int): Frames per second for the video.
     """
+    frames_dir = visual_dir + '/frames/'
+    output_file = visual_dir + '/sgd_trajectory.mp4'
     # Collect all frame files in sorted order
     frame_files = sorted(
-        [os.path.join(folder, f) for f in os.listdir(folder) if f.endswith('.png')]
+        [os.path.join(frames_dir, f) for f in os.listdir(frames_dir) if f.endswith('.png')]
     )
     
     # Use imageio to write frames to an MP4 file
@@ -190,22 +211,41 @@ def create_mp4_from_frames(folder='assets/frames', output_file='assets/toy2d_gt_
             writer.append_data(frame)
     
     print(f"MP4 video saved as '{output_file}'.")
+#%%
+def generate_sgd_traj_and_visuals(model, num_steps=50, lr=.1, plot_range=None):
+    generate_sgd_trajectory( model, num_steps=num_steps, lr=lr)
+    trajectory = load_ckpt_to_traj(ckpt_dir = model.ckpt_dir)
+    
+    print("Now plotting animations")
+    plot_progressive_trajectory(trajectory, model, plot_range=plot_range)
+    print("Now creating gif")
+    create_gif(model.visual_dir)
+    print("Now creating mp4")
+    create_mp4_from_frames(model.visual_dir)
 # %%
 if __name__ == "__main__":
     # Initialize the problem
     theta_init = torch.tensor([0.0, 0.5], requires_grad=True)  # Initial values 
 
-    ## Uncomment the following line for convex, overparametrized problem
-    #model = ConvexProblemModel(theta_init, random_seed=315, theta_star = [4, 3], batch_size=1, dataset_size_N=2) 
-    ## Uncomment the following line for convex, underparametrized problem
-    model = ConvexProblemModel(theta_init, random_seed=315, theta_star = [4, 3], batch_size=10, dataset_size_N=100) 
-    generate_sgd_trajectory( model )
-    trajectory = load_ckpt_to_traj()
-    
-    print("Now plotting animations")
-    plot_progressive_trajectory(trajectory, model)
-    print("Now creating gif")
-    create_gif()
-    print("Now creating mp4")
-    create_mp4_from_frames()
+    # model = ConvexProblemModel(theta_init, random_seed=315, theta_star = [4, 3], batch_size=10, dataset_size_N=100, name='convex_underparam') 
+    # model.generate_sgd_traj_and_visuals()
+    # model = ConvexProblemModel(theta_init, random_seed=315, theta_star = [4, 3], batch_size=1, dataset_size_N=2, name='convex_overparam') 
+    # model.generate_sgd_traj_and_visuals()
+
+    # theta_init = torch.tensor([1.0, -1.5], requires_grad=True)  # Initial values 
+    # model = NonConvexProblemModel(theta_init, random_seed=315, theta_star = [-1, -1], batch_size=10, dataset_size_N=100, name='nonconvex_underparam') 
+    # generate_sgd_traj_and_visuals(model, lr=.4, plot_range=[[-2, -2], [2,2]])
+
+    # theta_init = torch.tensor([1.5, -1.], requires_grad=True)  # Initial values 
+    # model = NonConvexProblemModel(theta_init, random_seed=315, theta_star = [-1, -1], batch_size=10, dataset_size_N=100, name='nonconvex_underparam_run2') 
+    # generate_sgd_traj_and_visuals(model, lr=.4, plot_range=[[-2, -2], [2,2]])
+
+    # theta_init = torch.tensor([1.9, -.5], requires_grad=True)  # Initial values 
+    # model = NonConvexProblemModel(theta_init, random_seed=315, theta_star = [-1, -1], batch_size=10, dataset_size_N=100, name='nonconvex_underparam_run3') 
+    # generate_sgd_traj_and_visuals(model, lr=.4, plot_range=[[-2, -2], [2,2]])
+
+    theta_init = torch.tensor([-1.9, 1.9], requires_grad=True)  # Initial values 
+    model = NonConvexProblemModel(theta_init, random_seed=315, theta_star = [-1, -1], batch_size=10, dataset_size_N=100, name='nonconvex_underparam_run4') 
+    generate_sgd_traj_and_visuals(model, lr=.4, plot_range=[[-2, -2], [2,2]])
+
 # %%
