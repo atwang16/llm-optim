@@ -1,5 +1,7 @@
 import argparse
+import os
 import pickle
+import time
 
 import numpy as np
 import torch
@@ -44,8 +46,9 @@ def get_pdf(sequence: np.ndarray, llama: Llama, good_tokens: str, output_file: s
     pdf_list = []
     for num, delim_idx in tqdm(zip(sequence, delimiters), total=len(sequence)):
         pdf = HierarchyPDF.from_sample(int_to_list_int(num), probs[0, start_idx:delim_idx])
-        rel_idx_from_end = delim_idx - len(sequence)
+        rel_idx_from_end = delim_idx - len(sequence_str) - 1
         kv_cache_trimmed = kv_cache.trim(rel_idx_from_end)
+
         pdf.refine(
             llama,
             s_traj=sequence_str[:delim_idx],
@@ -60,17 +63,37 @@ def get_pdf(sequence: np.ndarray, llama: Llama, good_tokens: str, output_file: s
 
     if output_file is not None:
         with open(output_file, "wb") as output_file:
-            pickle.dump(output_file, {"pdf": pdf_list})
+            pickle.dump({"pdf": pdf_list}, output_file)
 
     return pdf_list
 
 
-def get_kernel(pdf, output_dir=None):
+def get_kernel(pdfs: list[HierarchyPDF], sequence: np.ndarray, output_dir: str = None):
+    """_summary_
+
+    :param pdfs: list of HierarchyPDF objects representing P^{(i,i)}(X_{t+1}|X_t = sequence[t])
+    :param sequence: np.ndarray of integer sequence states between 0 and 10^k (in practice, should be scaled to
+    roughly 150 to 850).
+    :param output_dir: _description_, defaults to None
+    :return: _description_
+    """
+    # FIXME: may have an off by 1 error in aligning PDFs to the sequence?
+    assert len(pdfs) == sequence.shape[0]
+
     # Get kernel
     # If output_dir is not None, save kernel into npz
-    pdf = param_dict["pdf"]
-    P = pdf.probs  # TODO: Probably wrong, fix once HierarchyPDF is finished
-    kernel = fill_rows(P)
+    # pdf = param_dict["pdf"]
+    pdf_unrolled = []
+    for pdf in pdfs:
+        pdf_unrolled.append(pdf.get_prob())  # (10^prec,)
+    pdf_unrolled = np.array(pdf_unrolled)  # (len(sequence), 10^prec)
+    assert pdf_unrolled.shape[0] == sequence.shape[0]
+
+    # construct sparse probability matrix
+    sparse_prob = np.zeros((pdf_unrolled.shape[1], pdf_unrolled.shape[1]))
+    sparse_prob[sequence, :] = pdf_unrolled
+
+    kernel = fill_rows(sparse_prob)
     if output_dir is not None:
         np.savez(output_dir, kernel=kernel, init_min=param_dict["init_min"], init_max=param_dict["init_max"])
     return kernel
@@ -91,6 +114,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--output_dir", type=str, required=False, help="Path to directory to save inferred PDFs and kernels"
     )
+    parser.add_argument("--load", action="store_true", help="if true, load PDFs from output_dir if possible")
     args = parser.parse_args()
 
     # Load dummy for now
@@ -105,22 +129,35 @@ if __name__ == "__main__":
     pdf_dict = {}
     # TODO: parallelize??
     for param_name, param_seq in sequences.items():
+        param_seq = param_seq[:100]
         # Abstraction for easy parallelization
         # output_dir = f"{args.output_dir}/pdf/{param_name}.npy"
-        param_seq = np.round(param_seq * 100).astype(int)
+        param_seq = np.round(param_seq * 100).astype(
+            int
+        )  # TODO: may not be needed in general, depends on scaling of values
 
-        pdf = get_pdf(param_seq, llama, good_tokens, output_file=None)
-        pdf_dict[param_name] = {"pdf": pdf, "init_min:": param_seq.min(), "init_max": param_seq.max()}
+        pdf_path = os.path.join(args.output_dir, f"{param_name}_pdf.pkl")
+        if args.load and os.path.exists(pdf_path):
+            with open(pdf_path, "rb") as pdf_file:
+                pdfs = pickle.load(pdf_file)["pdf"]
+        else:
+            pdfs = get_pdf(param_seq, llama, good_tokens, output_file=pdf_path)
+        pdf_dict[param_name] = {
+            "pdf": pdfs,
+            "states": param_seq,
+            "init_min:": param_seq.min(),
+            "init_max": param_seq.max(),
+        }
 
     # TODO: Add .get() loop if parallelized to populate pdf_dict
 
-    # # Calculate kernels
-    # kernels_dict = {}
-    # # TODO: parallelize??
-    # for param_name, param_dict in pdf_dict.items():
-    #     # Abstraction for easy parallelization
-    #     # output_dir = f"{args.output_dir}/kernel/{param_name}.npy"
-    #     kernel = get_kernel(param_dict, output_dir=None)
-    #     kernels_dict[param_name] = kernel
+    # Calculate kernels
+    kernels_dict = {}
+    # TODO: parallelize??
+    for param_name, param_dict in pdf_dict.items():
+        # Abstraction for easy parallelization
+        # output_dir = f"{args.output_dir}/kernel/{param_name}.npy"
+        kernel = get_kernel(param_dict["pdf"], param_dict["states"], output_dir=None)
+        kernels_dict[param_name] = kernel
 
-    # # TODO: Add .get() loop if parallelized to populate kernels_dict
+    # TODO: Add .get() loop if parallelized to populate kernels_dict

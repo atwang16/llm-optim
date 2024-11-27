@@ -20,6 +20,13 @@ class HierarchyCache:
     def is_empty(self) -> bool:
         return self.past_key_values is None
 
+    @property
+    def num_layers(self) -> int:
+        return len(self.past_key_values)
+
+    def __len__(self) -> int:
+        return self.past_key_values[0][0].shape[2]
+
     def trim(self, length: int, inplace: bool = False) -> "HierarchyCache":
         trimmed_past_key_values = []
         for layer_past in self.past_key_values:
@@ -67,6 +74,32 @@ class HierarchyPDF:
     def is_leaf(self) -> bool:
         return self.n_levels == 1
 
+    def get_prob(self) -> np.ndarray:
+        if self.prob is None:
+            return None
+
+        if all(state is None for state in self.states):
+            return self.prob
+
+        next_level_states = []
+        for state in self.states:
+            if state is not None:
+                prob_state = state.get_prob()
+            else:
+                prob_state = None
+            next_level_states.append(prob_state)
+        
+        # set missing distributions as uniform
+        max_dim = max(state.shape[0] for state in next_level_states if state is not None)
+        for i, state in enumerate(next_level_states):
+            if state is None:
+                next_level_states[i] = np.ones((max_dim, )) / max_dim
+        
+        next_level_states = np.stack(next_level_states)
+
+        unraveled_probability = (self.prob[:, None] * next_level_states).flatten()
+        return unraveled_probability
+
     def refine(
         self,
         model: nn.Module,
@@ -83,12 +116,11 @@ class HierarchyPDF:
         :param kv_cache: key-value cache of running model.forward(S_traj)
         :param mode: either "neighbor" (update only the branches around the main branch) or "all" (update all branches)
         """
-        inp = []
-        for state in str_seq_to_int(s_traj):
-            inp.append(state)
-            if refinement_depth is None:
-                refinement_depth = len(state)
-            self._recursive_refine(model, True, 0, refinement_depth, inp, kv_cache, mode=mode, good_tokens=good_tokens)
+        inp = str_seq_to_int(s_traj)
+        if refinement_depth is None:
+            refinement_depth = len(inp[0])
+
+        self._recursive_refine(model, True, 0, refinement_depth, inp, kv_cache, mode=mode, good_tokens=good_tokens)
 
         return self
 
@@ -134,9 +166,7 @@ class HierarchyPDF:
 
             for new_state in new_states:
                 trimmed_kv_cache = (
-                    kv_cache.trim(current_pos - len(sequence[-1]) + 1)
-                    if current_pos < len(sequence[-1]) - 1
-                    else kv_cache
+                    kv_cache.trim(current_pos - len(sequence[-1])) if current_pos < len(sequence[-1]) - 1 else kv_cache
                 )
                 trimmed_sequence = deepcopy(sequence)
                 trimmed_sequence[-1] = trimmed_sequence[-1][:current_pos]

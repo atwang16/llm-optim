@@ -12,14 +12,14 @@ def compute_barycenter(row1, row2, reg=0.01, numItermax=1000, stopThr=1e-5):
     return barycenter
 
 
-def fill_rows(P):
-    non_zero_rows = np.where(np.sum(P, axis=1) > 0)[0]
+def fill_rows(sparse_prob: np.ndarray):
+    non_zero_rows = np.where(np.sum(sparse_prob, axis=1) > 0)[0]
     for i, row_idx in enumerate(non_zero_rows):
         if i != len(non_zero_rows) - 1:
             if non_zero_rows[i + 1] - row_idx > 1:
                 # Populate with barycenter
-                row1 = P[row_idx]
-                row2 = P[non_zero_rows[i + 1]]
+                row1 = sparse_prob[row_idx]
+                row2 = sparse_prob[non_zero_rows[i + 1]]
                 barycenter = compute_barycenter(row1, row2)
-                P[row_idx + 1:non_zero_rows[i + 1]] = barycenter
-    return P
+                sparse_prob[row_idx + 1:non_zero_rows[i + 1]] = barycenter
+    return sparse_prob
