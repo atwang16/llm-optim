@@ -43,6 +43,8 @@ def get_pdf(
     refinement_depth: int = 1,
     mode: str = "neighbor",
     str_delimiter: str = ",",
+    continue_from: list[HierarchyPDF] = None,
+    continue_idx: int = 0,
 ) -> list[HierarchyPDF]:
     """Compute hierarchical PDF for each step in sequence.
 
@@ -62,11 +64,18 @@ def get_pdf(
     # build sequence string
     sequence_str = llama.tokenizer.to_string(sequence)
     delimiters = [i for i, char in enumerate(sequence_str) if char == str_delimiter]
+    int_seq = str_seq_to_int(sequence_str)
+
+    start_idx = 0
+    pdf_list = [] if continue_from is None else continue_from
+
+    if continue_from is not None:
+        int_seq = int_seq[continue_idx+1:]
+        start_idx = delimiters[continue_idx] + 1
+        delimiters = delimiters[continue_idx+1:]
 
     probs, kv_cache, _ = llama.forward_probs(sequence_str, good_tokens, use_cache=True)
-    start_idx = 0
-    pdf_list = []
-    for num_list, delim_idx in tqdm(zip(str_seq_to_int(sequence_str), delimiters), total=len(sequence)):
+    for idx, (num_list, delim_idx) in tqdm(enumerate(zip(int_seq, delimiters)), total=len(sequence)):
         pdf = HierarchyPDF.from_sample(num_list, probs[0, start_idx:delim_idx])
         rel_idx_from_end = delim_idx - len(sequence_str) - 1
         kv_cache_trimmed = kv_cache.trim(rel_idx_from_end)
@@ -82,6 +91,13 @@ def get_pdf(
         pdf_list.append(pdf)
 
         start_idx = delim_idx + 1
+
+        if idx % 10 == 0 and output_file is not None:
+            output_parent_dir = os.path.join(os.path.dirname(output_file), "intermediate")
+            os.makedirs(output_parent_dir, exist_ok=True)
+            intermediate_output_path = os.path.join(output_parent_dir, f"pdfs_{idx}.pkl")
+            with open(intermediate_output_path, "wb") as intermediate_output_file:
+                pickle.dump({"pdf": pdf_list}, intermediate_output_file)
 
     if output_file is not None:
         with open(output_file, "wb") as output_file:
@@ -128,9 +144,16 @@ def load_dummy(pkl_path):
     return {"full_series": sequence}
 
 
-def compute_pdf_parallel(param_name, param_seq, llama, good_tokens, output_dir, load_existing):
+def compute_pdf_parallel(param_name, param_seq, llama, good_tokens, output_dir, load_existing, continue_existing, init_seq):
     pdf_path = os.path.join(output_dir, "pdfs", f"{param_name}.pkl")
-    if load_existing and os.path.exists(pdf_path):
+    if continue_existing:
+        pdf_paths = sorted(glob(f"{output_dir}/pdfs/intermediate/*.pkl"))
+        if pdf_paths:
+            with open(pdf_paths[-1], "rb") as pdf_file:
+                pdfs = pickle.load(pdf_file)["pdf"]
+            continue_idx = pdf_paths[-1].split("/")[-1].split(".")[0].split("_")[-1]
+            pdfs = get_pdf(param_seq, llama, good_tokens, output_file=pdf_path, continue_from=pdfs if continue_existing else None, continue_idx=continue_idx)
+    elif load_existing and os.path.exists(pdf_path):
         with open(pdf_path, "rb") as pdf_file:
             pdfs = pickle.load(pdf_file)["pdf"]
     else:
@@ -138,9 +161,10 @@ def compute_pdf_parallel(param_name, param_seq, llama, good_tokens, output_dir, 
     return param_name, {
         "pdf": pdfs,
         "states": param_seq,
-        "init_min": param_seq.min(),
-        "init_max": param_seq.max(),
+        "init_min": init_seq.min(),
+        "init_max": init_seq.max(),
     }
+
 
 # Parallelized kernel computation
 def compute_kernel_parallel(param_name, param_dict, output_dir):
@@ -161,11 +185,13 @@ if __name__ == "__main__":
     parser.add_argument("--llama_v", choices=[2, 3], type=int, required=True, help="Version of Llama model")
     parser.add_argument("--output_dir", type=str, required=True, help="Path to directory to save inferred PDFs and kernels")
     parser.add_argument("--load", action="store_true", help="if true, load PDFs from output_dir if possible")
+    parser.add_argument("--continue", action="store_true", help="Continue from existing PDFs", dest="_continue")
     parser.add_argument("--use-dummy", dest="use_dummy", action="store_true", help="Use dummy data for testing")
-    parser.add_argument("--n_threads", type=int, default=4, help="Number of threads for parallel processing")
+    parser.add_argument("--n_threads", type=int, default=1, help="Number of threads for parallel processing")
+    parser.add_argument("--gpu_idx", type=int, default=0, help="GPU index to use")
     args = parser.parse_args()
 
-    llama = Llama(llama_v=args.llama_v)
+    llama = Llama(llama_v=args.llama_v, device=f"cuda:{args.gpu_idx}")
 
     if args.use_dummy:
         sequences = load_dummy("tmp/brownian_motion_0.pkl")
@@ -182,14 +208,14 @@ if __name__ == "__main__":
     # Calculate PDFs in parallel
     pdf_dict = {}
     os.makedirs(os.path.join(args.output_dir, "pdfs"), exist_ok=True)
-    
+
     with ThreadPoolExecutor(max_workers=args.n_threads) as executor:
         futures = [
             executor.submit(compute_pdf_parallel, param_name, param_seq, llama, good_tokens,
-                            args.output_dir, args.load)
-            for param_name, param_seq in rescaled_sequences.items()
+                            args.output_dir, args.load, args._continue, init_seq)
+            for (param_name, param_seq), init_seq in zip(rescaled_sequences.items(), sequences.values)
         ]
-        
+
         for future in tqdm(as_completed(futures), total=len(futures), desc="Computing PDFs"):
             param_name, result = future.result()
             pdf_dict[param_name] = result
@@ -197,13 +223,13 @@ if __name__ == "__main__":
     # Calculate kernels in parallel
     kernels_dict = {}
     os.makedirs(os.path.join(args.output_dir, "kernel"), exist_ok=True)
-    
+
     with ThreadPoolExecutor(max_workers=args.n_threads) as executor:
         futures = [
             executor.submit(compute_kernel_parallel, param_name, param_dict, args.output_dir)
             for param_name, param_dict in pdf_dict.items()
         ]
-        
+
         for future in tqdm(as_completed(futures), total=len(futures), desc="Computing Kernels"):
             param_name, kernel = future.result()
             kernels_dict[param_name] = kernel
