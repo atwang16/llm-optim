@@ -3,7 +3,7 @@ import ot
 import torch
 
 
-def compute_barycenter(row1, row2, reg=0.01, numItermax=1000, stopThr=1e-5):
+def compute_barycenter(row1, row2, reg=0.01, numItermax=100000, stopThr=1e-4):
     n = len(row1)
     x = np.arange(n)
     M = (x[:, None] - x[None, :]) ** 2
@@ -29,4 +29,11 @@ def fill_rows(sparse_prob: np.ndarray):
                 row2 = sparse_prob[non_zero_rows[i + 1]]
                 barycenter = compute_barycenter(row1, row2)
                 sparse_prob[row_idx + 1:non_zero_rows[i + 1]] = barycenter
+    # Check for nan rows and rerun Sinkhorn
+    non_nan_rows = np.where(np.isnan(np.sum(sparse_prob, axis=1)))[0]
+    for row_idx in non_nan_rows:
+        row1 = sparse_prob[row_idx - 1]
+        row2 = sparse_prob[row_idx + 1]
+        barycenter = compute_barycenter(row1, row2)
+        sparse_prob[row_idx] = barycenter
     return sparse_prob
