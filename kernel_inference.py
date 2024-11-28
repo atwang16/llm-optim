@@ -18,7 +18,7 @@ def load_ckpts_into_seq(ckpts_path):
     # Returns a dict {"{param_name}": np.ndarray({n_ckpts}), ...},
     # where n_ckpts practically is time series length we provide as an input
     # remember to account for param_name being actually {layer_name}_{param_flattened_index}
-    model_state_dicts = [torch.load(ckpt_path) for ckpt_path in sorted(glob(f"{ckpts_path}/*"))]
+    model_state_dicts = [torch.load(ckpt_path)["model_state_dict"] if "model_state_dict" in torch.load(ckpt_path) else torch.load(ckpt_path) for ckpt_path in glob(f"{ckpts_path}/*.pth")]
     param_specs = [(param_name, param_mat.size()) for param_name, param_mat in model_state_dicts[0].items()]
     sequences = {}
     for param_spec in param_specs:
@@ -134,9 +134,11 @@ if __name__ == "__main__":
     )
     parser.add_argument("--load", action="store_true", help="if true, load PDFs from output_dir if possible")
     parser.add_argument("--use-dummy", dest="use_dummy", action="store_true", help="Use dummy data for testing")
+    parser.add_argument("--gpu_idx", type=int, default=0, help="GPU index to use")
+    parser.add_argument("--depth", type=int, default=1, help="Depth of refinement for hierarchical PDF")
     args = parser.parse_args()
 
-    llama = Llama(llama_v=args.llama_v)
+    llama = Llama(llama_v=args.llama_v, device=f"cuda:{args.gpu_idx}")
 
     if args.use_dummy:
         sequences = load_dummy("tmp/brownian_motion_0.pkl")
@@ -161,7 +163,7 @@ if __name__ == "__main__":
             with open(pdf_path, "rb") as pdf_file:
                 pdfs = pickle.load(pdf_file)["pdf"]
         else:
-            pdfs = get_pdf(param_seq, llama, good_tokens, output_file=pdf_path)
+            pdfs = get_pdf(param_seq, llama, good_tokens, output_file=pdf_path, refinement_depth=args.depth)
         pdf_dict[param_name] = {
             "pdf": pdfs,
             "states": param_seq,

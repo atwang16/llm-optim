@@ -45,16 +45,19 @@ def get_new_state(new_state_probs, cur_state, sample=False):
     # Sort in decreasing order
     if not sample:
         sorted_probs = np.argsort(new_state_probs)[::-1]
-        cond1, cond2 = False, False
+        cond1, cond2, cond3 = False, False, False
         counter = 0
-        while not (cond1 and cond2):
+        while not (cond1 and cond2 and cond3):
             cond1 = sorted_probs[counter] != cur_state  # Skip the current state if
             cond2 = len(str(sorted_probs[counter])) == 3  # Skip if the state is not 3 digits
+            cond3 = sorted_probs[counter]>=150 and sorted_probs[counter]<=850
             counter += 1
         return sorted_probs[counter - 1]
     else:
         # Construct a distribution and sample from it
         new_state_probs[cur_state] = 0
+        new_state_probs[:150] = 0
+        new_state_probs[850:] = 0
         new_state_probs = new_state_probs / np.sum(new_state_probs)
         return np.random.choice(np.arange(1000), p=new_state_probs)
 
@@ -67,8 +70,9 @@ def apply_kernel(kernels_dict, state_mat, model_state_dict, sample_flag=False):
         for i, _ in enumerate(model_state_dict[key].flatten()):
             kernel = kernels_dict[f"{key}_{i}"]["kernel"]
             param_state_vec = state_mat[:, counter]
-            new_state_probs = np.matmul(kernel, param_state_vec)
-            # Argmax over probabilities
+            # new_state_probs = kernel @ param_state_vec
+            new_state_probs = kernel[np.where(param_state_vec == 1)[0][0]]
+            print(np.where(param_state_vec == 1)[0][0])
             new_state = get_new_state(new_state_probs, np.argmax(param_state_vec), sample_flag)
             new_state_mat[new_state, counter] = 1
             counter += 1
@@ -115,7 +119,7 @@ if __name__ == "__main__":
     parser.add_argument("--output_dir", type=str, required=True, help="Path to directory to save inferred ckpts")
     parser.add_argument("--kernels_dir", type=str, required=True, help="Path to previously inferred kernels")
     parser.add_argument("--steps", type=int, required=True, help="Number of steps to infer")
-    parser.add_argument("--sample", type=bool, default=True, help="Sample from the distribution")
+    parser.add_argument("--sample", action="store_true", help="Sample from the distribution")
     args = parser.parse_args()
 
     # Load initial checkpoint
