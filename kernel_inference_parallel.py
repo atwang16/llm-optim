@@ -214,7 +214,7 @@ if __name__ == "__main__":
         futures = [
             executor.submit(compute_pdf_parallel, param_name, param_seq, llama, good_tokens,
                             args.output_dir, args.load, args._continue, init_seq, args.depth)
-            for (param_name, param_seq), init_seq in zip(rescaled_sequences.items(), sequences.values)
+            for (param_name, param_seq), init_seq in zip(rescaled_sequences.items(), sequences.values())
         ]
 
         for future in tqdm(as_completed(futures), total=len(futures), desc="Computing PDFs"):
