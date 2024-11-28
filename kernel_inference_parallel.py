@@ -21,7 +21,7 @@ def load_ckpts_into_seq(ckpts_path):
     # Returns a dict {"{param_name}": np.ndarray({n_ckpts}), ...},
     # where n_ckpts practically is time series length we provide as an input
     # remember to account for param_name being actually {layer_name}_{param_flattened_index}
-    model_state_dicts = [torch.load(ckpt_path) for ckpt_path in sorted(glob(f"{ckpts_path}/*"))]
+    model_state_dicts = [torch.load(ckpt_path)["model_state_dict"] if "model_state_dict" in torch.load(ckpt_path) else torch.load(ckpt_path) for ckpt_path in glob(f"{ckpts_path}/*.pth")]
     param_specs = [(param_name, param_mat.size()) for param_name, param_mat in model_state_dicts[0].items()]
     sequences = {}
     for param_spec in param_specs:
@@ -157,7 +157,7 @@ def compute_pdf_parallel(param_name, param_seq, llama, good_tokens, output_dir, 
         with open(pdf_path, "rb") as pdf_file:
             pdfs = pickle.load(pdf_file)["pdf"]
     else:
-        pdfs = get_pdf(param_seq, llama, good_tokens, output_file=pdf_path)
+        pdfs = get_pdf(param_seq, llama, good_tokens, output_file=pdf_path, refinement_depth=refinement_depth)
     return param_name, {
         "pdf": pdfs,
         "states": param_seq,
