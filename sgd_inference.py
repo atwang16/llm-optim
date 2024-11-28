@@ -115,7 +115,7 @@ if __name__ == "__main__":
     parser.add_argument("--output_dir", type=str, required=True, help="Path to directory to save inferred ckpts")
     parser.add_argument("--kernels_dir", type=str, required=True, help="Path to previously inferred kernels")
     parser.add_argument("--steps", type=int, required=True, help="Number of steps to infer")
-    parser.add_argument("--sample", action="store_true", help="Sample from the distribution instead of argmax")
+    parser.add_argument("--sample", type=bool, default=True, help="Sample from the distribution")
     args = parser.parse_args()
 
     # Load initial checkpoint
