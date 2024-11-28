@@ -144,7 +144,7 @@ def load_dummy(pkl_path):
     return {"full_series": sequence}
 
 
-def compute_pdf_parallel(param_name, param_seq, llama, good_tokens, output_dir, load_existing, continue_existing, init_seq):
+def compute_pdf_parallel(param_name, param_seq, llama, good_tokens, output_dir, load_existing, continue_existing, init_seq, refinement_depth):
     pdf_path = os.path.join(output_dir, "pdfs", f"{param_name}.pkl")
     if continue_existing:
         pdf_paths = sorted(glob(f"{output_dir}/pdfs/intermediate/*.pkl"))
@@ -152,7 +152,7 @@ def compute_pdf_parallel(param_name, param_seq, llama, good_tokens, output_dir, 
             with open(pdf_paths[-1], "rb") as pdf_file:
                 pdfs = pickle.load(pdf_file)["pdf"]
             continue_idx = pdf_paths[-1].split("/")[-1].split(".")[0].split("_")[-1]
-            pdfs = get_pdf(param_seq, llama, good_tokens, output_file=pdf_path, continue_from=pdfs if continue_existing else None, continue_idx=continue_idx)
+            pdfs = get_pdf(param_seq, llama, good_tokens, output_file=pdf_path, continue_from=pdfs if continue_existing else None, continue_idx=continue_idx, refinement_depth=refinement_depth)
     elif load_existing and os.path.exists(pdf_path):
         with open(pdf_path, "rb") as pdf_file:
             pdfs = pickle.load(pdf_file)["pdf"]
@@ -189,6 +189,7 @@ if __name__ == "__main__":
     parser.add_argument("--use-dummy", dest="use_dummy", action="store_true", help="Use dummy data for testing")
     parser.add_argument("--n_threads", type=int, default=1, help="Number of threads for parallel processing")
     parser.add_argument("--gpu_idx", type=int, default=0, help="GPU index to use")
+    parser.add_argument("--depth", type=int, default=1, help="Depth of refinement for hierarchical PDF")
     args = parser.parse_args()
 
     llama = Llama(llama_v=args.llama_v, device=f"cuda:{args.gpu_idx}")
@@ -212,7 +213,7 @@ if __name__ == "__main__":
     with ThreadPoolExecutor(max_workers=args.n_threads) as executor:
         futures = [
             executor.submit(compute_pdf_parallel, param_name, param_seq, llama, good_tokens,
-                            args.output_dir, args.load, args._continue, init_seq)
+                            args.output_dir, args.load, args._continue, init_seq, args.depth)
             for (param_name, param_seq), init_seq in zip(rescaled_sequences.items(), sequences.values)
         ]
 
