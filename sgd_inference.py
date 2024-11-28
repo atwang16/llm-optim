@@ -1,6 +1,7 @@
 import argparse
 import copy
 import os
+import random
 from glob import glob
 
 import numpy as np
@@ -122,6 +123,11 @@ if __name__ == "__main__":
     parser.add_argument("--sample", action="store_true", help="Sample from the distribution")
     args = parser.parse_args()
 
+    # Seed everything
+    np.random.seed(42)
+    torch.manual_seed(42)
+    random.seed(42)
+
     # Load initial checkpoint
     ckpt = torch.load(args.init_ckpt_path)
 
@@ -134,7 +140,6 @@ if __name__ == "__main__":
 
     init_state_dict = ckpt["model_state_dict"] if "model_state_dict" in ckpt else ckpt
     state_mat = load_params_to_state_mat(init_state_dict, kernels_dict)
-    print(np.where(state_mat == 1))
     trajectory = dict()
     for key in init_state_dict.keys():
         trajectory[key] = []
