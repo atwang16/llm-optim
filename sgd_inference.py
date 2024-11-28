@@ -41,19 +41,25 @@ def load_kernels(kernels_dir):
     return kernels_dict
 
 
-def get_new_state(new_state_probs, cur_state):
+def get_new_state(new_state_probs, cur_state, sample=False):
     # Sort in decreasing order
-    sorted_probs = np.argsort(new_state_probs)[::-1]
-    cond1, cond2 = False, False
-    counter = 0
-    while not (cond1 and cond2):
-        cond1 = sorted_probs[counter] != cur_state  # Skip the current state if
-        cond2 = len(str(sorted_probs[counter])) == 3 # Skip if the state is not 3 digits
-        counter += 1
-    return sorted_probs[counter - 1]
+    if not sample:
+        sorted_probs = np.argsort(new_state_probs)[::-1]
+        cond1, cond2 = False, False
+        counter = 0
+        while not (cond1 and cond2):
+            cond1 = sorted_probs[counter] != cur_state  # Skip the current state if
+            cond2 = len(str(sorted_probs[counter])) == 3  # Skip if the state is not 3 digits
+            counter += 1
+        return sorted_probs[counter - 1]
+    else:
+        # Construct a distribution and sample from it
+        new_state_probs[cur_state] = 0
+        new_state_probs = new_state_probs / np.sum(new_state_probs)
+        return np.random.choice(np.arange(1000), p=new_state_probs)
 
 
-def apply_kernel(kernels_dict, state_mat, model_state_dict):
+def apply_kernel(kernels_dict, state_mat, model_state_dict, sample_flag=False):
     # TODO: debug
     counter = 0
     new_state_mat = np.zeros_like(state_mat)
@@ -63,7 +69,7 @@ def apply_kernel(kernels_dict, state_mat, model_state_dict):
             param_state_vec = state_mat[:, counter]
             new_state_probs = np.matmul(kernel, param_state_vec)
             # Argmax over probabilities
-            new_state = get_new_state(new_state_probs, np.argmax(param_state_vec))
+            new_state = get_new_state(new_state_probs, np.argmax(param_state_vec), sample_flag)
             new_state_mat[new_state, counter] = 1
             counter += 1
     return new_state_mat
@@ -109,6 +115,7 @@ if __name__ == "__main__":
     parser.add_argument("--output_dir", type=str, required=True, help="Path to directory to save inferred ckpts")
     parser.add_argument("--kernels_dir", type=str, required=True, help="Path to previously inferred kernels")
     parser.add_argument("--steps", type=int, required=True, help="Number of steps to infer")
+    parser.add_argument("--sample", action="store_true", help="Sample from the distribution instead of argmax")
     args = parser.parse_args()
 
     # Load initial checkpoint
@@ -123,13 +130,14 @@ if __name__ == "__main__":
 
     init_state_dict = ckpt["model_state_dict"] if "model_state_dict" in ckpt else ckpt
     state_mat = load_params_to_state_mat(init_state_dict, kernels_dict)
-
+    print(np.where(state_mat == 1))
     trajectory = dict()
     for key in init_state_dict.keys():
         trajectory[key] = []
 
     for i in tqdm(range(args.steps)):
-        state_mat = apply_kernel(kernels_dict, state_mat, init_state_dict)
+        state_mat = apply_kernel(kernels_dict, state_mat, init_state_dict, args.sample)
+        # print(np.where(state_mat == 1))
         param_dict = state_mat_to_param(state_mat, kernels_dict, init_state_dict)
         for key in param_dict.keys():
             trajectory[key].append(param_dict[key])
@@ -139,7 +147,7 @@ if __name__ == "__main__":
         # torch.save({"model_state_dict": model.state_dict()}, f"{args.output_dir}/ckpt_{i}.pt")
         # metrics = model.get_metrics()
         # np.savez(f"{args.output_dir}/metrics_{i}.npz", metrics)
-        print(param_dict)
+        # print(param_dict)
     # save trajectory
     for key in trajectory.keys():
         trajectory[key] = torch.stack(trajectory[key], axis=0).numpy()
