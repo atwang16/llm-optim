@@ -2,6 +2,7 @@ import argparse
 import multiprocessing as mp
 import os
 import pickle
+import random
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import partial
 from glob import glob
@@ -21,7 +22,18 @@ def load_ckpts_into_seq(ckpts_path):
     # Returns a dict {"{param_name}": np.ndarray({n_ckpts}), ...},
     # where n_ckpts practically is time series length we provide as an input
     # remember to account for param_name being actually {layer_name}_{param_flattened_index}
-    model_state_dicts = [torch.load(ckpt_path)["model_state_dict"] if "model_state_dict" in torch.load(ckpt_path) else torch.load(ckpt_path) for ckpt_path in glob(f"{ckpts_path}/*.pth")]
+
+    model_state_dicts = []
+    for ckpt_path in sorted(glob(f"{ckpts_path}/*.pth")):
+        try:
+            checkpoint = torch.load(ckpt_path)
+            if "model_state_dict" in checkpoint:
+                model_state_dicts.append(checkpoint["model_state_dict"])
+            else:
+                model_state_dicts.append(checkpoint)
+        except Exception as e:
+            print(f"Error loading {ckpt_path}: {e}")
+
     param_specs = [(param_name, param_mat.size()) for param_name, param_mat in model_state_dicts[0].items()]
     sequences = {}
     for param_spec in param_specs:
@@ -191,6 +203,11 @@ if __name__ == "__main__":
     parser.add_argument("--gpu_idx", type=int, default=0, help="GPU index to use")
     parser.add_argument("--depth", type=int, default=1, help="Depth of refinement for hierarchical PDF")
     args = parser.parse_args()
+
+    # Seed everything
+    np.random.seed(42)
+    torch.manual_seed(42)
+    random.seed(42)
 
     llama = Llama(llama_v=args.llama_v, device=f"cuda:{args.gpu_idx}")
 
