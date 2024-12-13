@@ -317,13 +317,13 @@ class LSKI_nonconvex_underparam_run4(LLMSGDKernelInfer):
 # %%
 if __name__ == "__main__":
 
-    lski = LSKI_convex_underparam('convex_underparam_large_lr', theta_init = [0.0, 0.5])
+    lski = LSKI_convex_underparam('multirun', theta_init = [0.6, 0.5])
     #%%
-    lski.generate_data(lr=.5, num_steps = 50)
+    lski.generate_data(lr=.1, num_steps = 50)
     #%%
     lski.infer_kernels()
     #%%
-    lski.infer_sgd(infer_init_thetas=[1.5, 2.5])
+    lski.infer_sgd(infer_init_thetas=[0.5, 0.5])
     #%%
     #traj = np.load(f'{lski.output_root}/inferred_sgd/sgd_infer_trajectory.npz', allow_pickle=True)['arr_0'].item()['thetas']
     traj = np.load(f'{lski.output_root}/inferred_sgd/sgd_infer_trajectory.npz', allow_pickle=True)['arr_0'].item()['thetas']
