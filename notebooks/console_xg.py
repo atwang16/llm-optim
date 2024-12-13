@@ -18,7 +18,89 @@ import os
 # change dir to parent dir of this file
 os.chdir(os.path.dirname(os.getcwd()))
 print( os.getcwd() )
+#%%
+gpt_prompt = '''There is an unknown function y=f(x) (x, y are real numbers), which we can query the function to get the y value. Now let's try to find the minimum value of this function. Each time, you only can query one x_t, and I can help to figure out the f(x_t). 
 
+Notice that you can only give me the query point x without asking any other things.
+
+What's your first query point? Only give me a single number, no text!'''
+
+ptlist = np.array([[0, -.1353], [-1, -0.0111], [1, -.6065], [2,-1], [3,-.6065], [2.5, .8825], [1.5, .8825], [1.9, -.805], [2.1, -.805], [2, -1], [2.05, -.94990], [1.95, -.9499]])
+plt.scatter(ptlist[:,0], ptlist[:,1], s=np.arange(ptlist.shape[0]))
+
+#%%
+x = np.linspace(0, 5, 1000)
+y = np.cos(1 * np.pi * x) * np.exp(.1 * x) 
+plt.plot(x, y)
+def func(x):
+    return torch.cos(1 * np.pi * x) * torch.exp(.1 * x)
+
+# Define the function
+def func(x):
+    # return torch.cos(1.45 * np.pi * (x-1)) * (- torch.exp(-((x - 2.84) ** 2) / 2))
+    return torch.cos(2 * np.pi * x) * (- torch.exp(-((x - 2.0) ** 2) / 2))
+
+import torch 
+# Define the initial starting location
+x_init = torch.tensor(0.5, requires_grad=True)
+# Set up optimizers
+optimizers = {
+    "SGD": torch.optim.SGD([x_init.clone().detach().requires_grad_()], lr=0.1),
+    "Momentum": torch.optim.SGD([x_init.clone().detach().requires_grad_()], lr=0.1, momentum=0.9),
+    "Adam": torch.optim.Adam([x_init.clone().detach().requires_grad_()], lr=0.1),
+}
+
+# Number of steps
+num_steps = 50
+
+# Dictionary to store trajectories
+trajectories = {key: [] for key in optimizers.keys()}
+
+# Optimization loop
+for name, optimizer in optimizers.items():
+    x = x_init.clone().detach().requires_grad_()
+    optimizer.param_groups[0]['params'][0] = x
+    for step in range(num_steps):
+        optimizer.zero_grad()
+        y = func(x)
+        y.backward()
+        optimizer.step()
+        trajectories[name].append(x.item())
+
+# Plot the trajectories
+x_vals = np.linspace(-1, 5, 500)
+y_vals = func(torch.tensor(x_vals)).detach().numpy()
+
+plt.figure(figsize=(10, 6))
+plt.plot(x_vals, y_vals, label='Function', color='black', linewidth=2)
+
+for name, trajectory in trajectories.items():
+    plt.plot(trajectory, func(torch.tensor(trajectory)).detach().numpy(), marker='o', label=name)
+for name, trajectory in trajectories.items():
+    plt.plot(trajectory[0], func(torch.tensor(trajectory[0])).detach().numpy(), marker='*', markersize=15, label=f'init x')
+    break
+
+for name, trajectory in trajectories.items():
+    plt.plot(ptlist[:,0], ptlist[:,1], marker='o', label='GPT-4o')
+    break
+
+for name, trajectory in trajectories.items():
+    # plt.plot(trajectory[0], func(torch.tensor(trajectory[0])).detach().numpy(), marker='*', markersize=15, label=f'init x')
+    plt.plot(0, func(torch.tensor(0)).detach().numpy(), marker='*', markersize=15, label=f'GPT-4o init x')
+    break
+
+plt.xlabel('x')
+plt.ylabel('func(x)')
+plt.title('Optimizer Trajectories')
+plt.legend()
+plt.grid()
+plt.show()
+
+
+
+#%%
+
+#%%
 #%%
 import kernel_inference
 #%%

@@ -188,16 +188,19 @@ def plot_progressive_trajectory(trajectory, model, frame_dirname='frames', plot_
     
     print(f"Frames saved in '{save_dir}'.")
 
+    create_gif(model.visual_dir, frame_dirname=frame_dirname)
+    create_mp4_from_frames(model.visual_dir, frame_dirname=frame_dirname)
+
 # Convert frames to a GIF
-def create_gif(visual_dir, duration=100):
-    frames_dir = visual_dir + '/frames/'
-    output_file = visual_dir + '/sgd_trajectory.gif'
+def create_gif(visual_dir, frame_dirname='frames', duration=100):
+    frames_dir = visual_dir + f'/{frame_dirname}/'
+    output_file = visual_dir + f'/{frame_dirname}.gif'
     frames = [Image.open(os.path.join(frames_dir, f)) for f in sorted(os.listdir(frames_dir)) if f.endswith('.png')]
     frames[0].save(output_file, save_all=True, append_images=frames[1:], duration=duration, loop=0)
     print(f"GIF saved as '{output_file}'.")
 
 # %%
-def create_mp4_from_frames(visual_dir, fps=10):
+def create_mp4_from_frames(visual_dir, frame_dirname='frames', fps=10):
     """
     Create an MP4 video from a folder of image frames.
     Args:
@@ -205,8 +208,8 @@ def create_mp4_from_frames(visual_dir, fps=10):
         output_file (str): Path to save the MP4 video.
         fps (int): Frames per second for the video.
     """
-    frames_dir = visual_dir + '/frames/'
-    output_file = visual_dir + '/sgd_trajectory.mp4'
+    frames_dir = visual_dir + f'/{frame_dirname}/'
+    output_file = visual_dir + f'/{frame_dirname}.mp4'
     # Collect all frame files in sorted order
     frame_files = sorted(
         [os.path.join(frames_dir, f) for f in os.listdir(frames_dir) if f.endswith('.png')]
@@ -268,39 +271,39 @@ class LLMSGDKernelInfer():
         pass
 
 class LSKI_convex_underparam(LLMSGDKernelInfer):
-    def __init__(self):
-        super().__init__(exp_name = 'convex_underparam')
-        theta_init = torch.tensor([0.0, 0.5], requires_grad=True)  # Initial values 
+    def __init__(self, exp_name= 'convex_underparam', theta_init = [0.0, 0.5] ):
+        super().__init__(exp_name = exp_name)
+        theta_init = torch.tensor(theta_init, requires_grad=True)  # Initial values 
         self.model = ConvexProblemModel(theta_init, random_seed=315, theta_star = [4, 3], batch_size=10, dataset_size_N=100, name='convex_underparam', output_root=self.output_root) 
-    def generate_data(self):
-        generate_sgd_traj_and_visuals(self.model, lr=.1)
+    def generate_data(self, **kwargs):
+        generate_sgd_traj_and_visuals(self.model, **kwargs)
 class LSKI_convex_overparam(LLMSGDKernelInfer):
     def __init__(self):
         super().__init__(exp_name = 'convex_overparam')
         theta_init = torch.tensor([0.0, 0.5], requires_grad=True)  # Initial values 
         self.model = ConvexProblemModel(theta_init, random_seed=315, theta_star = [4, 3], batch_size=1, dataset_size_N=2, name='convex_overparam', output_root=self.output_root) 
-    def generate_data(self):
-        generate_sgd_traj_and_visuals(self.model, lr=.1)
+    def generate_data(self, lr = .1):
+        generate_sgd_traj_and_visuals(self.model, lr=lr)
 class LSKI_nonconvex_underparam(LLMSGDKernelInfer):
     def __init__(self):
         super().__init__(exp_name = 'nonconvex_underparam')
         theta_init = torch.tensor([1.0, -1.5], requires_grad=True)  # Initial values 
         self.model = NonConvexProblemModel(theta_init, random_seed=315, theta_star = [-1, -1], batch_size=10, dataset_size_N=100, name='nonconvex_underparam', output_root=self.output_root) 
-    def generate_data(self):
-        generate_sgd_traj_and_visuals(self.model, lr=.4, plot_range=[[-2, -2], [2,2]])
+    def generate_data(self, lr = .4):
+        generate_sgd_traj_and_visuals(self.model, lr=lr, plot_range=[[-2, -2], [2,2]])
 class LSKI_nonconvex_underparam_run2(LLMSGDKernelInfer):
     def __init__(self):
         super().__init__(exp_name = 'nonconvex_underparam_run2')
         theta_init = torch.tensor([1.5, -1.], requires_grad=True)  # Initial values 
         self.model = NonConvexProblemModel(theta_init, random_seed=315, theta_star = [-1, -1], batch_size=10, dataset_size_N=100, name='nonconvex_underparam_run2') 
-    def generate_data(self):
-        generate_sgd_traj_and_visuals(self.model, lr=.4, plot_range=[[-2, -2], [2,2]])
+    def generate_data(self, lr=.4):
+        generate_sgd_traj_and_visuals(self.model, lr=lr, plot_range=[[-2, -2], [2,2]])
 class LSKI_nonconvex_underparam_run3(LLMSGDKernelInfer):
     def __init__(self):
         super().__init__(exp_name = 'nonconvex_underparam_run3')
         theta_init = torch.tensor([1.9, -.5], requires_grad=True)  # Initial values 
         self.model = NonConvexProblemModel(theta_init, random_seed=315, theta_star = [-1, -1], batch_size=10, dataset_size_N=100, name='nonconvex_underparam_run3', output_root=self.output_root) 
-    def generate_data(self):
+    def generate_data(self, lr=.4):
         generate_sgd_traj_and_visuals(self.model, lr=.4, plot_range=[[-2, -2], [2,2]])
 class LSKI_nonconvex_underparam_run4(LLMSGDKernelInfer):
     def __init__(self):
@@ -314,17 +317,18 @@ class LSKI_nonconvex_underparam_run4(LLMSGDKernelInfer):
 # %%
 if __name__ == "__main__":
 
+    lski = LSKI_convex_underparam('convex_underparam_large_lr', theta_init = [0.0, 0.5])
     #%%
-    lski = LSKI_convex_underparam()
-    lski.generate_data()
+    lski.generate_data(lr=.5, num_steps = 50)
     #%%
     lski.infer_kernels()
     #%%
     lski.infer_sgd(infer_init_thetas=[1.5, 2.5])
-
-    traj = np.load('output/convex_underparam/inferred_sgd/sgd_infer_trajectory.npz', allow_pickle=True)['arr_0'].item()['thetas']
+    #%%
+    #traj = np.load(f'{lski.output_root}/inferred_sgd/sgd_infer_trajectory.npz', allow_pickle=True)['arr_0'].item()['thetas']
+    traj = np.load(f'{lski.output_root}/inferred_sgd/sgd_infer_trajectory.npz', allow_pickle=True)['arr_0'].item()['thetas']
     print(traj.shape)
-    plot_progressive_trajectory(torch.from_numpy(traj), lski.model, frame_dirname='sgdrunframes3')
+    plot_progressive_trajectory(torch.from_numpy(traj), lski.model, frame_dirname='sgdrunframes1')
 
     #%%
     #%%
