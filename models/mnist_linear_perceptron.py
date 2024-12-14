@@ -15,6 +15,7 @@ Date: 2024-12-02
 """
 
 import os
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -77,7 +78,7 @@ class LinearPerceptron(nn.Module):
         return x
 
 
-def train_model(model, train_loader, criterion, optimizer, num_epochs=10, output_dir="checkpoints"):
+def train_model(model, train_loader, criterion, optimizer, test_loader, num_epochs=10, output_dir="checkpoints"):
     """
     Train the model.
 
@@ -97,10 +98,13 @@ def train_model(model, train_loader, criterion, optimizer, num_epochs=10, output
         exit(1)
 
     model.train()  # set model to training mode
+    accs = []
 
     for epoch in range(num_epochs):
         total_loss = 0.0
         for data, target in train_loader:
+            data = data.to("cuda")
+            target = target.to("cuda")
             optimizer.zero_grad()              # clear gradients from the previous step
             output = model(data)               # forward pass
             loss = criterion(output, target)   # compute loss
@@ -115,8 +119,18 @@ def train_model(model, train_loader, criterion, optimizer, num_epochs=10, output
             'optimizer_state_dict': optimizer.state_dict(),
             'loss': total_loss/len(train_loader),
         }
+        with torch.no_grad():
+            acc = evaluate_model(model, test_loader)
+            accs.append(acc)
         torch.save(checkpoint, f"{output_dir}/ckpt_{(epoch+1):03d}.pth")
         print(f"Epoch {epoch+1}/{num_epochs}, Loss: {total_loss/len(train_loader):.4f}")
+    from matplotlib import pyplot as plt
+    plt.plot(accs)
+    plt.xlabel("Step")
+    plt.ylabel("Accuracy")
+    plt.title("Accuracy over steps")
+    plt.savefig(f"{output_dir}/accuracy.png")
+    plt.close()
 
 
 def evaluate_model(model, test_loader):
@@ -146,20 +160,21 @@ def evaluate_model(model, test_loader):
 
 if __name__ == "__main__":
     # hyperparameters
-    batch_size = 12665 # why?? isn't it large?
-    learning_rate = 0.01
-    num_epochs = 50 
-    output_dir = os.path.abspath("../output/checkpoints/mnist_linear_perceptron_ckpt")
+    batch_size = 1000  # why?? isn't it large?
+    learning_rate = 0.001
+    num_epochs = 50
+    output_dir = os.path.abspath("../mnist_bsizedsize_1e-3_50_batches/ckpts")
 
     train_loader, test_loader = get_data_loaders(batch_size)
 
     # initialize model, loss, and optimizer
-    model = LinearPerceptron()
+    model = LinearPerceptron().to("cuda")
     criterion = nn.CrossEntropyLoss() 
     optimizer = optim.SGD(model.parameters(), lr=learning_rate)
 
     print("Training the LinearPerceptron model...")
-    train_model(model, train_loader, criterion, optimizer, num_epochs, output_dir)
+    train_model(model, train_loader, criterion, optimizer, test_loader, num_epochs, output_dir)
 
     print("Evaluating the model...")
+    evaluate_model(model, test_loader)
     evaluate_model(model, test_loader)
