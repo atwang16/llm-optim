@@ -121,6 +121,7 @@ if __name__ == "__main__":
     parser.add_argument("--kernels_dir", type=str, required=True, help="Path to previously inferred kernels")
     parser.add_argument("--steps", type=int, required=True, help="Number of steps to infer")
     parser.add_argument("--sample", action="store_true", help="Sample from the distribution")
+    parser.add_argument("--fake_init", action="store_true", help="Use fake init")
     args = parser.parse_args()
 
     # Seed everything
@@ -130,6 +131,9 @@ if __name__ == "__main__":
 
     # Load initial checkpoint
     ckpt = torch.load(args.init_ckpt_path)
+    if args.fake_init:
+        for key in ckpt.keys():
+            ckpt[key] = torch.rand_like(ckpt[key])
 
     # TODO import MLP and uncomment this
     # model = MLP()
