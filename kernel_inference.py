@@ -99,7 +99,9 @@ def get_pdf(
     return pdf_list
 
 
-def get_kernel(pdfs: list[HierarchyPDF], sequence: np.ndarray, init_min: float, init_max: float, output_file: str = None):
+def get_kernel(
+    pdfs: list[HierarchyPDF], sequence: np.ndarray, init_min: float, init_max: float, output_file: str = None
+):
     """Compute transition kernel from hierarchical PDFs for each parameter
 
     :param pdfs: list of HierarchyPDF objects representing P^{(i,i)}(X_{t+1}|X_t = sequence[t])
