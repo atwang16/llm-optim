@@ -39,9 +39,14 @@ def load_ckpts_into_seq(ckpts_path):
     return sequences
 
 
-def generate_random_kernel(kernel_dim: int = 1000, sigma: float = 10):
-    init = np.eye(kernel_dim)
-    kernel = gaussian_filter1d(init, sigma=sigma)
+def generate_random_kernel(kernel_dim: int = 1000, sigma: float = 10, mode: str = "gaussian"):
+    match mode:
+        case "gaussian":
+            init = np.eye(kernel_dim)
+            kernel = gaussian_filter1d(init, sigma=sigma)
+        case "random":
+            kernel = np.random.rand(kernel_dim, kernel_dim)
+            kernel = kernel / np.sum(kernel, axis=1, keepdims=True)
     return kernel
 
 
@@ -50,6 +55,7 @@ if __name__ == "__main__":
     parser.add_argument("--ckpt", type=str, help="path to directory with checkpoints")
     parser.add_argument("--kernel-dim", "-k", dest="kernel_dim", type=int, default=1000)
     parser.add_argument("--sigma", type=float, default=10)
+    parser.add_argument("--mode", choices=["random", "gaussian"], default="gaussian")
     parser.add_argument("--output", type=str, help="path to output directory")
     args = parser.parse_args()
 
@@ -60,7 +66,7 @@ if __name__ == "__main__":
         shutil.rmtree(args.output)
     os.makedirs(args.output, exist_ok=True)
     for idx, (param_name, param_seq) in enumerate(tqdm(sequences.items())):
-        kernel = generate_random_kernel(args.kernel_dim, args.sigma)
+        kernel = generate_random_kernel(args.kernel_dim, args.sigma, mode=args.mode)
         init_min = list(sequences.values())[idx].min()
         init_max = list(sequences.values())[idx].max()
 

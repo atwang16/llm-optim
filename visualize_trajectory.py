@@ -50,7 +50,7 @@ def visualize_gt(ckpt_dir, param, param_indexes, output_dir, use_pca: bool = Fal
     else:
         traj = torch.from_numpy(traj)  # (num_steps, num_params)
 
-    print(traj.shape)
+    print(f"Number of steps: {traj.shape[0]}")
     plot_progressive_trajectory(traj, None, params, frame_dirname=output_dir)
     create_mp4_from_frames(output_dir, name="sgd_trajectory_gt.mp4")
 

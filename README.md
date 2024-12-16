@@ -48,7 +48,7 @@ python visualize_trajectory.py --traj toy_mnist_mlp_ckpt_lr_0.01/sgd/sgd_infer_t
 python visualize_trajectory.py --traj toy_mnist_mlp_ckpt_lr_0.01/sgd/sgd_infer_trajectory.npz --output toy_mnist_mlp_ckpt_lr_0.01/sgd --param fc1.weight --indexes 0/0 0/1
 
 # Baseline: Gaussian kernel
-python generate_random_kernel.py --ckpt toy_mnist_mlp_ckpt_lr_0.01/train --output toy_mnist_mlp_ckpt_lr_0.01/kernel_gaussian
+python generate_random_kernel.py --ckpt toy_mnist_mlp_ckpt_lr_0.01/train --output toy_mnist_mlp_ckpt_lr_0.01/kernel_gaussian --mode gaussian
 
 python sgd_inference_mlp.py --init_ckpt_path toy_mnist_mlp_ckpt_lr_0.01/train/ckpt_000.pth --output_dir toy_mnist_mlp_ckpt_lr_0.01/sgd_gaussian --kernels_dir toy_mnist_mlp_ckpt_lr_0.01/kernel_gaussian --steps 100 --sample
 
