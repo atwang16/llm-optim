@@ -28,11 +28,11 @@ def generate_baseline_data(baseline_exp_name="nonconvex_underparam_baseline", in
     os.makedirs(lski.model.ckpt_dir, exist_ok=True)
     os.makedirs(lski.model.visual_dir, exist_ok=True)
 
-    # Override the init thetas to match for baseline
+    # override the init thetas to match for baseline
     lski.model.thetas = torch.nn.Parameter(torch.tensor(init_thetas).reshape(-1,1), requires_grad=True)
 
-    # Generate the baseline SGD trajectory (and visuals)
-    lski.generate_data()  # This calls generate_sgd_traj_and_visuals, storing baseline in ckpts/ & visuals/
+    # generate the baseline SGD trajectory (and visuals)
+    lski.generate_data()  # this calls generate_sgd_traj_and_visuals, storing baseline in ckpts/ & visuals/
 
     baseline_ckpts_path = lski.model.ckpt_dir
     return lski.model, baseline_ckpts_path
@@ -48,7 +48,7 @@ def run_inference_experiment(refinement_depth, baseline_ckpts_path, init_thetas=
     output_root = f"output/{exp_name}"
     os.makedirs(output_root, exist_ok=True)
 
-    # 1) Run kernel_inference.py (builds transition kernel from the baseline ckpts)
+    # 1) run kernel_inference.py (builds transition kernel from the baseline ckpts)
     output_dir = os.path.join(output_root, "inferred_kernels")
     os.makedirs(output_dir, exist_ok=True)
     kernel_inference_cmd = (
@@ -61,9 +61,9 @@ def run_inference_experiment(refinement_depth, baseline_ckpts_path, init_thetas=
     print(kernel_inference_cmd)
     os.system(kernel_inference_cmd)
 
-    # 2) Run sgd_inference.py to simulate LLM-based 'SGD' from the same init
+    # 2) run sgd_inference.py to simulate LLM-based 'SGD' from the same init
     infer_init_ckpt_path = os.path.join(output_root, "infer_init_ckpt.pth")
-    # Create a dummy checkpoint with the initial thetas:
+    # create a dummy checkpoint with the initial thetas:
     dummy_ckpt = {"model_state_dict": {"thetas": torch.tensor(init_thetas).reshape(-1,1)}}
     torch.save(dummy_ckpt, infer_init_ckpt_path)
 
@@ -80,7 +80,7 @@ def run_inference_experiment(refinement_depth, baseline_ckpts_path, init_thetas=
     print(sgd_inference_cmd)
     os.system(sgd_inference_cmd)
 
-    # 3) Load the final LLM-inferred trajectory
+    # 3) load the final LLM-inferred trajectory
     sgd_infer_trajectory_npz = os.path.join(inferred_sgd_path, "sgd_infer_trajectory.npz")
     data = np.load(sgd_infer_trajectory_npz, allow_pickle=True)['arr_0'].item()
     trajectory = data["thetas"]  # shape: (num_steps, 2, 1)
@@ -94,21 +94,21 @@ def plot_comparison(baseline_model, baseline_ckpts_path, all_trajectories, depth
     """
     fig, ax = plt.subplots()
 
-    # 1) Load the baseline trajectory from ckpts
+    # 1) load the baseline trajectory from ckpts
     baseline_traj = load_ckpt_to_traj(baseline_ckpts_path)  # shape: (num_steps+1, 2, 1) if 50 steps
     baseline_traj = baseline_traj[..., 0]  # flatten the last dim
 
-    # 2) Plot the 2D contour
+    # 2) plot the 2D contour
     x_range = [-2, 2]
-    y_range = [-2, 5]  # as mentioned in your final report needs y up to 5
+    y_range = [-2, 5] # TODO: check
     X, Y, Z = compute_grid_values(baseline_model, x_range=x_range, y_range=y_range, resolution=100)
     c = ax.contourf(X, Y, Z, levels=50, cmap="viridis")
     plt.colorbar(c, ax=ax, label='Function Value')
 
-    # 3) Plot the baseline ground-truth trajectory
+    # 3) plot the baseline ground-truth trajectory
     ax.plot(baseline_traj[:,0], baseline_traj[:,1], "o-", color="black", label="Baseline SGD")
 
-    # 4) Plot each LLM-inferred trajectory
+    # 4) plot each LLM-inferred trajectory
     colors = ["red", "green", "blue", "orange"]
     for i, depth in enumerate(depth_list):
         traj = all_trajectories[depth][..., 0]  # shape (steps, 2)
@@ -133,13 +133,13 @@ if __name__ == "__main__":
     2) For each refinement depth, run kernel_inference using the same baseline ckpts + the same init.
     3) Plot all on the same figure.
     """
-    # 1) Generate baseline data
+    # 1) generate baseline data
     baseline_model, baseline_ckpts_path = generate_baseline_data(
         baseline_exp_name="nonconvex_underparam_baseline",
         init_thetas=[-1.9, 1.9]  # choose your consistent init for baseline
     )
 
-    # 2) Run LLM-based experiments with different refinements (only 1,2 here)
+    # 2) run LLM-based experiments with different refinements (only 1,2 here)
     depth_list = [1, 2]
     all_trajectories = {}
     for depth in depth_list:
@@ -150,5 +150,5 @@ if __name__ == "__main__":
         )
         all_trajectories[depth] = traj
 
-    # 3) Plot comparison
+    # 3) plot comparison
     plot_comparison(baseline_model, baseline_ckpts_path, all_trajectories, depth_list)
