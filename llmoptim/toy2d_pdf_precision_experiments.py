@@ -74,6 +74,7 @@ def run_inference_experiment(refinement_depth, baseline_ckpts_path, init_thetas=
         f"--init_ckpt_path {infer_init_ckpt_path} "
         f"--output_dir {inferred_sgd_path} "
         f"--kernels_dir {output_dir}/kernel/ "
+        f"--sample "
         f"--steps 50"
     )
     print(sgd_inference_cmd)
