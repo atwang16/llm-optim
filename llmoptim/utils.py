@@ -1,4 +1,5 @@
 import os
+import shutil
 
 import imageio
 import matplotlib.pyplot as plt
@@ -86,6 +87,8 @@ def plot_progressive_trajectory(
         assert len(params) == 2, "Only 2D plots are supported."
 
     save_dir = frame_dirname
+    if os.path.exists(os.path.join(save_dir, "frames")):
+        shutil.rmtree(os.path.join(save_dir, "frames"))
     os.makedirs(os.path.join(save_dir, "frames"), exist_ok=True)
     if trajectory.ndim == 3:
         trajectory = trajectory[..., 0].clone()
@@ -133,7 +136,7 @@ def create_gif(visual_dir, duration=100):
 
 
 # %%
-def create_mp4_from_frames(visual_dir, fps=10):
+def create_mp4_from_frames(visual_dir, name: str = "sgd_trajectory.mp4", fps: float = 10):
     """
     Create an MP4 video from a folder of image frames.
     Args:
@@ -142,7 +145,7 @@ def create_mp4_from_frames(visual_dir, fps=10):
         fps (int): Frames per second for the video.
     """
     frames_dir = os.path.join(visual_dir, "frames")
-    output_file = os.path.join(visual_dir, "sgd_trajectory.mp4")
+    output_file = os.path.join(visual_dir, name)
     # Collect all frame files in sorted order
     frame_files = sorted([os.path.join(frames_dir, f) for f in os.listdir(frames_dir) if f.endswith(".png")])
 
