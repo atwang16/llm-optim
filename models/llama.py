@@ -1,4 +1,5 @@
 import sys
+from typing import Literal
 
 import bitsandbytes as bnb
 import torch
@@ -22,7 +23,7 @@ class Llama(nn.Module):
         _8bit: bool = False,
         flash_attention: bool = False,
         dtype=torch.float16,
-        llama_v: [2, 3] = 3,
+        llama_v: Literal[2] | Literal[3] = 3,
         device="cuda:0",
     ):
         super().__init__()
@@ -153,10 +154,10 @@ class Llama(nn.Module):
             out = self.model(
                 input_ids,
                 use_cache=use_cache,
-                past_key_values=kv_cache.to(self.device).to_tuple() if kv_cache is not None and use_cache else None,
+                past_key_values=kv_cache.to_tuple() if kv_cache is not None and use_cache else None,
             )
         logit_mat = out["logits"]
-        kv_cache = HierarchyCache(out["past_key_values"]).cpu()
+        kv_cache = HierarchyCache(out["past_key_values"])
         probs = torch.nn.functional.softmax(
             logit_mat[:, 1:-1, good_tokens].clone().cpu().to(torch.float32), dim=-1
         ).numpy()
