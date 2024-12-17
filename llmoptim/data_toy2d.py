@@ -4,11 +4,9 @@
 import torch
 import os
 
-import matplotlib.pyplot as plt
-import matplotlib.animation as animation
-from PIL import Image
 import numpy as np
-import imageio
+
+from llmoptim.utils import load_ckpt_to_traj, plot_progressive_trajectory, create_gif, create_mp4_from_frames
 
 # chdir to the parent dir of this file
 os.chdir(os.path.dirname(os.path.abspath(__file__)) + "/..")
@@ -108,85 +106,6 @@ def generate_sgd_trajectory(model, num_steps=50, lr=0.1):
     # model = ConvexProblemModel(x)
     # generate_sgd_trajectory(model )
 
-# Function to compute grid values of the target function
-def compute_grid_values(model, x_range=[0,2], y_range=[0,3], resolution=100):
-    x_vals = torch.linspace(x_range[0], x_range[1], resolution)
-    y_vals = torch.linspace(y_range[0], y_range[1], resolution)
-    X, Y = torch.meshgrid(x_vals, y_vals, indexing='ij')
-    points = torch.stack([X.flatten(), Y.flatten()], dim=1)  # Flatten and stack coordinates
-    
-    with torch.no_grad():
-        Z = model.get_loss_i(thetas=points.T)  # Batch process and reshape
-        Z = Z.mean(axis=0) # Average over the batch dimension
-        Z = Z.view(resolution, resolution)
-
-    return X.numpy(), Y.numpy(), Z.numpy()
-    # Example usage
-    # X, Y, Z = compute_grid_values(model)
-    # print(X.shape, Y.shape, Z.shape)
-    # # show as image
-    # import matplotlib.pyplot as plt
-    # fig, ax = plt.subplots()
-    # ax.imshow(Z, origin='lower', extent=(0, 2, 0, 3))
-    # plt.show()
-
-def load_ckpt_to_traj(ckpt_dir):
-    import glob 
-    ckpt_files = glob.glob(ckpt_dir + '/*.pth')
-    # sort by step
-    ckpt_files.sort(key=lambda x: int(x.split('_')[-1].split('.')[0]))
-    # load the last checkpoint
-    xs = []
-    for ckpt_file in ckpt_files:
-        ckpt = torch.load(ckpt_file)
-        xs.append(ckpt['thetas'])
-    xs = torch.stack(xs)
-    return xs 
-# trajectory = load_ckpt_to_traj()
-
-# %%
-
-# Function to plot and save frames progressively
-def plot_progressive_trajectory(trajectory, model, frame_dirname='frames', plot_range=None, margin=0.4, cmap='viridis'):
-    '''
-        trajectory: torch.tensor of shape (num_steps, 2, 1)
-        model: ConvexProblemModel
-        plot_range: list of list of 2 elements, [[x_min, y_min], [x_max, y_max]]
-        margin: float, margin to add to the plot range
-        cmap: str, colormap
-
-    '''
-    save_dir = model.visual_dir + f'/{frame_dirname}/'
-    os.makedirs(save_dir, exist_ok=True)
-    trajectory = trajectory[..., 0 ].clone()
-    if plot_range is None:
-        minr, maxr = trajectory.min(axis=0)[0].numpy(), trajectory.max(axis=0)[0].numpy()
-        x_range = [minr[0] - margin, maxr[0] + margin]
-        y_range = [minr[1] - margin, maxr[1] + margin]
-    else:
-        minr, maxr = plot_range
-        x_range = [minr[0], maxr[0] ]
-        y_range = [minr[1], maxr[1] ]
-    X, Y, Z = compute_grid_values(
-        model, 
-        x_range=x_range, 
-        y_range=y_range
-    )
-    
-    # Generate frames
-    for i in range(1, len(trajectory) + 1):
-        fig, ax = plt.subplots()
-        c = ax.contourf(X, Y, Z, levels=50, cmap=cmap)
-        plt.colorbar(c, ax=ax, label='Function value')
-        ax.plot(trajectory[:i, 0], trajectory[:i, 1], 'o-', color='magenta', label='SGD run')
-        ax.set_xlabel(r'$\theta_1$')
-        ax.set_ylabel(r'$\theta_2$')
-        ax.set_title('SGD Trajectory')
-        ax.legend()
-        plt.savefig(f'{save_dir}/frame_{i:03d}.png')
-        plt.close(fig)
-    
-    print(f"Frames saved in '{save_dir}'.")
 
     create_gif(model.visual_dir, frame_dirname=frame_dirname)
     create_mp4_from_frames(model.visual_dir, frame_dirname=frame_dirname)

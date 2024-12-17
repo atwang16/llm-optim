@@ -166,3 +166,6 @@ cython_debug/
 #.idea/
 
 output/
+data/
+tmp_output/
+toy_mnist_mlp_ckpt_lr_0.01/
