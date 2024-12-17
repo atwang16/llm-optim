@@ -174,7 +174,7 @@ class LSKI_nonconvex_underparam(LLMSGDKernelInfer):
         theta_init = torch.tensor([1.0, -1.5], requires_grad=True)  # Initial values 
         self.model = NonConvexProblemModel(theta_init, random_seed=315, theta_star = [-1, -1], batch_size=10, dataset_size_N=100, name='nonconvex_underparam', output_root=self.output_root) 
     def generate_data(self):
-        generate_sgd_traj_and_visuals(self.model, lr=.4, plot_range=[[-2, -2], [2,2]])
+        generate_sgd_traj_and_visuals(self.model, lr=.4, plot_range=[[-2, -2], [2,5]])
 class LSKI_nonconvex_underparam_run2(LLMSGDKernelInfer):
     def __init__(self):
         super().__init__(exp_name = 'nonconvex_underparam_run2')
@@ -192,7 +192,7 @@ class LSKI_nonconvex_underparam_run3(LLMSGDKernelInfer):
 class LSKI_nonconvex_underparam_run4(LLMSGDKernelInfer):
     def __init__(self):
         super().__init__(exp_name = 'nonconvex_underparam_run4')
-        theta_init = torch.tensor([-1.9, 1.9], requires_grad=True)  # Initial values 
+        theta_init = torch.tensor([-1.9, 1.9], requires_grad=True)  # Initial values # TODO: check, that's why we see these initial values in the paper
         self.model = NonConvexProblemModel(theta_init, random_seed=315, theta_star = [-1, -1], batch_size=10, dataset_size_N=100, name='nonconvex_underparam_run4', output_root=self.output_root) 
     def generate_data(self):
         generate_sgd_traj_and_visuals(self.model, lr=.4, plot_range=[[-2, -2], [2,2]])
@@ -207,7 +207,7 @@ if __name__ == "__main__":
     #%%
     lski.infer_kernels()
     #%%
-    lski.infer_sgd(infer_init_thetas=[1.5, 2.5])
+    lski.infer_sgd(infer_init_thetas=[1.5, 2.5]) # TODO: check why don't theta1 and theta2 match the output plot?
 
     traj = np.load('output/convex_underparam/inferred_sgd/sgd_infer_trajectory.npz', allow_pickle=True)['arr_0'].item()['thetas']
     print(traj.shape)
