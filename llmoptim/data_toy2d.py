@@ -263,7 +263,7 @@ class LLMSGDKernelInfer():
         kernels_dir = f'{self.output_root}/inferred_kernels/kernel/'
         steps = 50
         sgd_inference_cmd = \
-        f"python sgd_inference.py --init_ckpt_path {init_ckpt_path} --output_dir {output_dir} --kernels_dir {kernels_dir} --steps {steps}"
+        f"python sgd_inference.py --init_ckpt_path {init_ckpt_path} --output_dir {output_dir} --kernels_dir {kernels_dir} --steps {steps} --sample"
         print(sgd_inference_cmd)
         os.system(sgd_inference_cmd)
 
