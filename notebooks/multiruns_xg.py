@@ -44,12 +44,24 @@ def visgrid(trajs):
         plt.xlim(-2, 2)
         plt.ylim(-2, 5)
         plt.show()
-
+    if plot_range is None:
+        minr, maxr = trajectory.min(axis=0)[0].numpy(), trajectory.max(axis=0)[0].numpy()
+        x_range = [minr[0] - margin, maxr[0] + margin]
+        y_range = [minr[1] - margin, maxr[1] + margin]
+    else:
+        minr, maxr = plot_range
+        x_range = [minr[0], maxr[0] ]
+        y_range = [minr[1], maxr[1] ]
+    X, Y, Z = compute_grid_values(
+        model, 
+        x_range=x_range, 
+        y_range=y_range
+    )
 # %%
 if __name__ == "__main__":
 
     # lski = LSKI_convex_underparam('multirun', theta_init = [0.6, 0.5])
-    lski = LSKI_nonconvex_underparam('multirun_nonconvex2', theta_init = [1.0, -2.])
+    lski = LSKI_nonconvex_underparam('multirun_nonconvex0', theta_init = [-1.9, 1.9])
     #%%
     lski.generate_data(lr=.2, num_steps = 50, plot_range=[[-2, -2], [2,5]])
     #%%
@@ -58,10 +70,12 @@ if __name__ == "__main__":
     trajs = grid_run(lski, gmin = [-1.8, -1.8], gmax = [1.6, 4.8], steps = [5, 5])
     visgrid(trajs)
     #%%
-    lski.infer_sgd(infer_init_thetas=[-1.5, -1.5])
+    infer_init_thetas = [1.0, -2.]
+    lski.infer_sgd(infer_init_thetas=infer_init_thetas)
     #%%
     #traj = np.load(f'{lski.output_root}/inferred_sgd/sgd_infer_trajectory.npz', allow_pickle=True)['arr_0'].item()['thetas']
     traj = np.load(f'{lski.output_root}/inferred_sgd/sgd_infer_trajectory.npz', allow_pickle=True)['arr_0'].item()['thetas']
+    traj = np.concatenate([[np.array(infer_init_thetas)[:, None]], traj], axis=0)
     print(traj.shape)
-    plot_progressive_trajectory(torch.from_numpy(traj), lski.model, frame_dirname='sgdrunframes2', plot_range=[[-2, -2], [2,5]])
+    plot_progressive_trajectory(torch.from_numpy(traj), lski.model, frame_dirname='sgdrunframes4', plot_range=[[-2, -2], [2,5]])
 #%%
