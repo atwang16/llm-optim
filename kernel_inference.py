@@ -52,6 +52,7 @@ def get_pdf(
     refinement_depth: int = 1,
     mode: str = "neighbor",
     str_delimiter: str = ",",
+    use_full_sequence: bool = True,
 ) -> list[HierarchyPDF]:
     """Compute hierarchical PDF for each step in sequence.
 
@@ -75,14 +76,22 @@ def get_pdf(
     probs, kv_cache, _ = llama.forward_probs(sequence_str, good_tokens, use_cache=True)
     start_idx = 0
     pdf_list = []
-    for num_list, delim_idx in tqdm(zip(str_seq_to_int(sequence_str), delimiters), total=len(sequence)):
+    for idx, (num_list, delim_idx) in tqdm(
+        enumerate(zip(str_seq_to_int(sequence_str), delimiters)), total=len(sequence)
+    ):
         pdf = HierarchyPDF.from_sample(num_list, probs[0, start_idx:delim_idx])
         rel_idx_from_end = delim_idx - len(sequence_str) - 1
-        kv_cache_trimmed = kv_cache.trim(rel_idx_from_end)
+
+        if idx > 0 and not use_full_sequence:
+            subsequence_str = sequence_str[delimiters[idx - 1] + 1 : delim_idx]
+            kv_cache_trimmed = kv_cache.trim(delimiters[idx - 1] + 1 - len(sequence_str) - 1, rel_idx_from_end)
+        else:
+            subsequence_str = sequence_str[:delim_idx]
+            kv_cache_trimmed = kv_cache.trim(rel_idx_from_end)
 
         pdf.refine(
             llama,
-            s_traj=sequence_str[:delim_idx],
+            s_traj=subsequence_str,
             refinement_depth=refinement_depth,
             kv_cache=kv_cache_trimmed,
             good_tokens=good_tokens,
@@ -150,6 +159,9 @@ if __name__ == "__main__":
     parser.add_argument("--use-dummy", dest="use_dummy", action="store_true", help="Use dummy data for testing")
     parser.add_argument("--gpu_idx", type=int, default=0, help="GPU index to use")
     parser.add_argument("--depth", type=int, default=1, help="Depth of refinement for hierarchical PDF")
+    parser.add_argument(
+        "--use-last", dest="use_last", action="store_true", help="Use only last sequence state for refining PDFs"
+    )
     args = parser.parse_args()
 
     # Seed everything
@@ -182,7 +194,14 @@ if __name__ == "__main__":
             with open(pdf_path, "rb") as pdf_file:
                 pdfs = pickle.load(pdf_file)["pdf"]
         else:
-            pdfs = get_pdf(param_seq, llama, good_tokens, output_file=pdf_path, refinement_depth=args.depth)
+            pdfs = get_pdf(
+                param_seq,
+                llama,
+                good_tokens,
+                output_file=pdf_path,
+                refinement_depth=args.depth,
+                use_full_sequence=not args.use_last,
+            )
         pdf_dict[param_name] = {
             "pdf": pdfs,
             "states": param_seq,

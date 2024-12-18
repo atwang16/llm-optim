@@ -57,6 +57,7 @@ def get_pdf(
     str_delimiter: str = ",",
     continue_from: list[HierarchyPDF] = None,
     continue_idx: int = 0,
+    use_full_sequence: bool = True,
 ) -> list[HierarchyPDF]:
     """Compute hierarchical PDF for each step in sequence.
 
@@ -82,19 +83,27 @@ def get_pdf(
     pdf_list = [] if continue_from is None else continue_from
 
     if continue_from is not None:
-        int_seq = int_seq[continue_idx+1:]
+        int_seq = int_seq[continue_idx + 1 :]
         start_idx = delimiters[continue_idx] + 1
-        delimiters = delimiters[continue_idx+1:]
+        delimiters = delimiters[continue_idx + 1 :]
 
     probs, kv_cache, _ = llama.forward_probs(sequence_str, good_tokens, use_cache=True)
-    for idx, (num_list, delim_idx) in tqdm(enumerate(zip(int_seq, delimiters)), total=len(sequence)):
+    for idx, (num_list, delim_idx) in tqdm(
+        enumerate(zip(str_seq_to_int(sequence_str), delimiters)), total=len(sequence)
+    ):
         pdf = HierarchyPDF.from_sample(num_list, probs[0, start_idx:delim_idx])
         rel_idx_from_end = delim_idx - len(sequence_str) - 1
-        kv_cache_trimmed = kv_cache.trim(rel_idx_from_end)
+
+        if idx > 0 and not use_full_sequence:
+            subsequence_str = sequence_str[delimiters[idx - 1] + 1 : delim_idx]
+            kv_cache_trimmed = kv_cache.trim(delimiters[idx - 1] + 1 - len(sequence_str) - 1, rel_idx_from_end)
+        else:
+            subsequence_str = sequence_str[:delim_idx]
+            kv_cache_trimmed = kv_cache.trim(rel_idx_from_end)
 
         pdf.refine(
             llama,
-            s_traj=sequence_str[:delim_idx],
+            s_traj=subsequence_str,
             refinement_depth=refinement_depth,
             kv_cache=kv_cache_trimmed,
             good_tokens=good_tokens,
@@ -118,7 +127,9 @@ def get_pdf(
     return pdf_list
 
 
-def get_kernel(pdfs: list[HierarchyPDF], sequence: np.ndarray, init_min: float, init_max: float, output_file: str = None):
+def get_kernel(
+    pdfs: list[HierarchyPDF], sequence: np.ndarray, init_min: float, init_max: float, output_file: str = None
+):
     """Compute transition kernel from hierarchical PDFs for each parameter
 
     :param pdfs: list of HierarchyPDF objects representing P^{(i,i)}(X_{t+1}|X_t = sequence[t])
@@ -156,7 +167,18 @@ def load_dummy(pkl_path):
     return {"full_series": sequence}
 
 
-def compute_pdf_parallel(param_name, param_seq, llama, good_tokens, output_dir, load_existing, continue_existing, init_seq, refinement_depth):
+def compute_pdf_parallel(
+    param_name,
+    param_seq,
+    llama,
+    good_tokens,
+    output_dir,
+    load_existing,
+    continue_existing,
+    init_seq,
+    refinement_depth,
+    use_full_sequence,
+):
     pdf_path = os.path.join(output_dir, "pdfs", f"{param_name}.pkl")
     if continue_existing:
         pdf_paths = sorted(glob(f"{output_dir}/pdfs/intermediate/*.pkl"))
@@ -164,7 +186,16 @@ def compute_pdf_parallel(param_name, param_seq, llama, good_tokens, output_dir, 
             with open(pdf_paths[-1], "rb") as pdf_file:
                 pdfs = pickle.load(pdf_file)["pdf"]
             continue_idx = pdf_paths[-1].split("/")[-1].split(".")[0].split("_")[-1]
-            pdfs = get_pdf(param_seq, llama, good_tokens, output_file=pdf_path, continue_from=pdfs if continue_existing else None, continue_idx=continue_idx, refinement_depth=refinement_depth)
+            pdfs = get_pdf(
+                param_seq,
+                llama,
+                good_tokens,
+                output_file=pdf_path,
+                continue_from=pdfs if continue_existing else None,
+                continue_idx=continue_idx,
+                refinement_depth=refinement_depth,
+                use_full_sequence=use_full_sequence,
+            )
     elif load_existing and os.path.exists(pdf_path):
         with open(pdf_path, "rb") as pdf_file:
             pdfs = pickle.load(pdf_file)["pdf"]
@@ -195,13 +226,18 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--ckpts_path", type=str, required=False, help="Path to directory containing the checkpoints")
     parser.add_argument("--llama_v", choices=[2, 3], type=int, required=True, help="Version of Llama model")
-    parser.add_argument("--output_dir", type=str, required=True, help="Path to directory to save inferred PDFs and kernels")
+    parser.add_argument(
+        "--output_dir", type=str, required=True, help="Path to directory to save inferred PDFs and kernels"
+    )
     parser.add_argument("--load", action="store_true", help="if true, load PDFs from output_dir if possible")
     parser.add_argument("--continue", action="store_true", help="Continue from existing PDFs", dest="_continue")
     parser.add_argument("--use-dummy", dest="use_dummy", action="store_true", help="Use dummy data for testing")
     parser.add_argument("--n_threads", type=int, default=1, help="Number of threads for parallel processing")
     parser.add_argument("--gpu_idx", type=int, default=0, help="GPU index to use")
     parser.add_argument("--depth", type=int, default=1, help="Depth of refinement for hierarchical PDF")
+    parser.add_argument(
+        "--use-last", dest="use_last", action="store_true", help="Use only last sequence state for refining PDFs"
+    )
     args = parser.parse_args()
 
     # Seed everything
@@ -229,8 +265,19 @@ if __name__ == "__main__":
 
     with ThreadPoolExecutor(max_workers=args.n_threads) as executor:
         futures = [
-            executor.submit(compute_pdf_parallel, param_name, param_seq, llama, good_tokens,
-                            args.output_dir, args.load, args._continue, init_seq, args.depth)
+            executor.submit(
+                compute_pdf_parallel,
+                param_name,
+                param_seq,
+                llama,
+                good_tokens,
+                args.output_dir,
+                args.load,
+                args._continue,
+                init_seq,
+                args.depth,
+                not args.use_last,
+            )
             for (param_name, param_seq), init_seq in zip(rescaled_sequences.items(), sequences.values())
         ]
 

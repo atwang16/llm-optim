@@ -26,11 +26,15 @@ class HierarchyCache:
     def __len__(self) -> int:
         return self.past_key_values[0][0].shape[2]
 
-    def trim(self, length: int, inplace: bool = False) -> "HierarchyCache":
+    def trim(self, start: int, length: int = None, inplace: bool = False) -> "HierarchyCache":
+        if length is None:
+            length = start
+            start = 0
+
         trimmed_past_key_values = []
         for layer_past in self.past_key_values:
             key_states, value_states = layer_past
-            new_layer_past = (key_states[..., :length, :], value_states[..., :length, :])
+            new_layer_past = (key_states[..., start:length, :], value_states[..., start:length, :])
             trimmed_past_key_values.append(new_layer_past)
 
         if inplace:
