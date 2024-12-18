@@ -11,14 +11,13 @@ import numpy as np
 import imageio
 
 # chdir to the parent dir of this file
-os.chdir(os.path.dirname(os.path.abspath(__file__)) + "/..")
-print(os.getcwd())
+# os.chdir(os.path.dirname(os.path.abspath(__file__)) + "/..")
+# print(os.getcwd())
+root_dir = os.path.dirname(os.path.abspath(__file__)) + "/.."
 
 # Create a directory for saving checkpoints
 CKPT_DIR = "checkpoints_2dtoy"
-os.makedirs(CKPT_DIR, exist_ok=True)
 OUTPUT_DIR = "dataprep_output/2dtoy/"
-os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 #%%
 # Define the convex function
@@ -147,7 +146,7 @@ def load_ckpt_to_traj(ckpt_dir):
 # %%
 
 # Function to plot and save frames progressively
-def plot_progressive_trajectory(trajectory, model, frame_dirname='frames', plot_range=None, margin=0.4, cmap='viridis'):
+def plot_progressive_trajectory(trajectory, model, frame_dirname='frames', plot_range=None, margin=0.4, cmap='viridis', init_theta=None):
     '''
         trajectory: torch.tensor of shape (num_steps, 2, 1)
         model: ConvexProblemModel
@@ -172,7 +171,7 @@ def plot_progressive_trajectory(trajectory, model, frame_dirname='frames', plot_
         x_range=x_range, 
         y_range=y_range
     )
-    
+    init_theta = trajectory[0].numpy() if init_theta is None else init_theta    
     # Generate frames
     for i in range(1, len(trajectory) + 1):
         fig, ax = plt.subplots()
@@ -182,6 +181,7 @@ def plot_progressive_trajectory(trajectory, model, frame_dirname='frames', plot_
         ax.set_xlabel(r'$\theta_1$')
         ax.set_ylabel(r'$\theta_2$')
         ax.set_title('SGD Trajectory')
+        plt.plot(init_theta[0], init_theta[1], 'gX', label='Initial theta', markersize=10)
         ax.legend()
         plt.savefig(f'{save_dir}/frame_{i:03d}.png')
         plt.close(fig)
@@ -254,12 +254,14 @@ class LLMSGDKernelInfer():
         print(kernel_inference_cmd)
         os.system(kernel_inference_cmd)
 
-    def infer_sgd(self, infer_init_thetas=[1.,2.]):
+    def infer_sgd(self, infer_init_thetas=[1.,2.], infersgd_name='inferred_sgd'):
         self.model.thetas = torch.nn.Parameter(torch.tensor(infer_init_thetas).reshape(-1,1), requires_grad=True)
-        torch.save({"model_state_dict": self.model.state_dict()}, self.infer_init_ckpt_path)
 
-        init_ckpt_path = self.infer_init_ckpt_path
-        output_dir  = f'{self.output_root}/inferred_sgd'
+        # init_ckpt_path = self.infer_init_ckpt_path
+        output_dir  = f'{self.output_root}/{infersgd_name}/'
+        os.makedirs(output_dir, exist_ok=True)
+        init_ckpt_path = output_dir + 'init_ckpt.pth'
+        torch.save({"model_state_dict": self.model.state_dict()}, init_ckpt_path)
         kernels_dir = f'{self.output_root}/inferred_kernels/kernel/'
         steps = 50
         sgd_inference_cmd = \
@@ -285,12 +287,12 @@ class LSKI_convex_overparam(LLMSGDKernelInfer):
     def generate_data(self, lr = .1):
         generate_sgd_traj_and_visuals(self.model, lr=lr)
 class LSKI_nonconvex_underparam(LLMSGDKernelInfer):
-    def __init__(self):
-        super().__init__(exp_name = 'nonconvex_underparam')
-        theta_init = torch.tensor([1.0, -1.5], requires_grad=True)  # Initial values 
+    def __init__(self, exp_name= 'nonconvex_underparam', theta_init = [0.0, 0.5]):
+        super().__init__(exp_name = exp_name)
+        theta_init = torch.tensor(theta_init, requires_grad=True)  # Initial values 
         self.model = NonConvexProblemModel(theta_init, random_seed=315, theta_star = [-1, -1], batch_size=10, dataset_size_N=100, name='nonconvex_underparam', output_root=self.output_root) 
-    def generate_data(self, lr = .4):
-        generate_sgd_traj_and_visuals(self.model, lr=lr, plot_range=[[-2, -2], [2,2]])
+    def generate_data(self, lr = .4, plot_range=[[-2, -2], [2,2]], **kwargs):
+        generate_sgd_traj_and_visuals(self.model, lr=lr, plot_range=[[-2, -2], [2,2]], **kwargs)
 class LSKI_nonconvex_underparam_run2(LLMSGDKernelInfer):
     def __init__(self):
         super().__init__(exp_name = 'nonconvex_underparam_run2')
@@ -317,7 +319,8 @@ class LSKI_nonconvex_underparam_run4(LLMSGDKernelInfer):
 # %%
 if __name__ == "__main__":
 
-    lski = LSKI_convex_underparam('multirun', theta_init = [0.6, 0.5])
+    # lski = LSKI_convex_underparam('multirun', theta_init = [0.6, 0.5])
+    lski = LSKI_nonconvex_underparam('multirun_nonconvex', theta_init = [0.6, 0.5])
     #%%
     lski.generate_data(lr=.1, num_steps = 50)
     #%%
