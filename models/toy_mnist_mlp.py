@@ -9,11 +9,13 @@ from torchvision import datasets, transforms
 
 def get_data_loaders(batch_size=64):
     # transform to normalize data and convert to tensor
-    transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Resize((14, 14)),
-        transforms.Normalize((0.1307,), (0.3081,)),
-    ])
+    transform = transforms.Compose(
+        [
+            transforms.ToTensor(),
+            transforms.Resize((14, 14)),
+            transforms.Normalize((0.1307,), (0.3081,)),
+        ]
+    )
 
     train_dataset = datasets.MNIST(root="./data", train=True, transform=transform, download=True)
     test_dataset = datasets.MNIST(root="./data", train=False, transform=transform, download=True)
@@ -32,38 +34,72 @@ def get_data_loaders(batch_size=64):
 
 
 class MLP(nn.Module):
-    def __init__(self, input_size=14*14, num_classes=2):
+    def __init__(self, input_size=14 * 14, num_classes=2):
         super(MLP, self).__init__()
         self.flatten = nn.Flatten()
         self.fc1 = nn.Linear(input_size, num_classes)
 
     def forward(self, x):
         x = self.flatten(x)  # flatten 14*14 images to 196 vector
-        x = self.fc1(x)      # output layer
+        x = self.fc1(x)  # output layer
         return x
 
 
-def train_model(model, train_loader, criterion, optimizer, num_epochs=10, output_dir="checkpoints"):
-    os.makedirs(output_dir, exist_ok=True)
-    model.train()  # Set model to training mode
-    for epoch in range(num_epochs):
-        total_loss = 0.0
-        for batch_idx, (data, target) in enumerate(train_loader):
-            optimizer.zero_grad()              # clear gradients from the previous step
-            output = model(data)               # forward pass
-            loss = criterion(output, target)
-            loss.backward()                    # backward pass (gradient computation)
-            optimizer.step()                   # update weights
-
-            total_loss += loss.item()
+def train_model(
+    model,
+    train_loader,
+    criterion,
+    optimizer,
+    num_epochs=10,
+    num_iterations: bool = 10,
+    output_dir="checkpoints",
+    save_checkpoint_per_iteration: bool = False,
+    save_checkpoint_before_train: bool = False,
+):
+    def save_checkpoint(model, optimizer, epoch, loss, output_dir):
         # Save checkpoint
         checkpoint = {
-            'epoch': epoch + 1,
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            'loss': total_loss/len(train_loader),
+            "epoch": epoch + 1,
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "loss": loss / len(train_loader),
         }
         torch.save(checkpoint, f"{output_dir}/ckpt_{epoch:03d}.pth")
+
+    assert (num_epochs is None) ^ (num_iterations is None), "Either num_epochs or num_iterations should be provided"
+    os.makedirs(output_dir, exist_ok=True)
+    model.train()  # Set model to training mode
+    iter_count = 0
+    for epoch in range(num_epochs):
+        total_loss = 0.0
+
+        if not save_checkpoint_per_iteration and save_checkpoint_before_train:
+            save_checkpoint(model, optimizer, epoch, total_loss, output_dir)
+
+        for batch_idx, (data, target) in enumerate(train_loader):
+            if save_checkpoint_per_iteration and save_checkpoint_before_train:
+                save_checkpoint(model, optimizer, epoch, total_loss, output_dir)
+
+            optimizer.zero_grad()  # clear gradients from the previous step
+            output = model(data)  # forward pass
+            loss = criterion(output, target)
+            loss.backward()  # backward pass (gradient computation)
+            optimizer.step()  # update weights
+
+            total_loss += loss.item()
+
+            iter_count += 1
+
+            if save_checkpoint_per_iteration and not save_checkpoint_before_train:
+                save_checkpoint(model, optimizer, epoch, total_loss, output_dir)
+
+            if num_iterations is not None and iter_count >= num_iterations:
+                return
+
+        # Save checkpoint
+        if not save_checkpoint_per_iteration and not save_checkpoint_before_train:
+            save_checkpoint(model, optimizer, epoch, total_loss, output_dir)
+
         print(f"Epoch {epoch+1}/{num_epochs}, Loss: {total_loss/len(train_loader):.4f}")
 
 
@@ -73,8 +109,8 @@ def evaluate_model(model, test_loader):
     total = 0
     with torch.no_grad():  # disable gradient calculation for evaluation
         for data, target in test_loader:
-            output = model(data)                      # forward pass
-            pred = output.argmax(dim=1)               # get predicted class
+            output = model(data)  # forward pass
+            pred = output.argmax(dim=1)  # get predicted class
             correct += (pred == target).sum().item()  # count correct predictions
             total += target.size(0)
     accuracy = 100 * correct / total
@@ -87,8 +123,9 @@ if __name__ == "__main__":
     batch_size = 12665
     learning_rate = 0.01
     num_epochs = 50
+    num_iterations = None
     hidden_size = 128
-    output_dir = "../toy_mnist_mlp_ckpt_lr_0.01"
+    output_dir = "../toy_mnist_mlp_ckpt_lr_0.01_pre"
 
     train_loader, test_loader = get_data_loaders(batch_size)
     # initialize model, loss, and optimizer
@@ -97,7 +134,16 @@ if __name__ == "__main__":
     optimizer = optim.SGD(model.parameters(), lr=learning_rate)
 
     print("training the MLP model...")
-    train_model(model, train_loader, criterion, optimizer, num_epochs, output_dir)
+    train_model(
+        model,
+        train_loader,
+        criterion,
+        optimizer,
+        num_epochs,
+        num_iterations,
+        output_dir,
+        save_checkpoint_before_train=True,
+    )
 
     print("evaluating the model...")
     evaluate_model(model, test_loader)

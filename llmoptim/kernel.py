@@ -3,7 +3,7 @@ import ot
 import torch
 
 
-def compute_barycenter(row1, row2, reg=0.01, numItermax=100000, stopThr=1e-4):
+def compute_barycenter(row1, row2, reg=0.05, numItermax=100000, stopThr=1e-4):
     n = len(row1)
     x = np.arange(n)
     M = (x[:, None] - x[None, :]) ** 2

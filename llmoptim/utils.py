@@ -81,6 +81,9 @@ def plot_progressive_trajectory(
     cmap: str, colormap
 
     """
+    if not isinstance(trajectory, dict):
+        trajectory = {"SGD run": trajectory}
+
     if params is None:
         params = [r"\theta_1", r"\theta_2"]
     else:
@@ -90,14 +93,31 @@ def plot_progressive_trajectory(
     if os.path.exists(os.path.join(save_dir, "frames")):
         shutil.rmtree(os.path.join(save_dir, "frames"))
     os.makedirs(os.path.join(save_dir, "frames"), exist_ok=True)
-    if trajectory.ndim == 3:
-        trajectory = trajectory[..., 0].clone()
-    if plot_range is None:
-        minr, maxr = trajectory.min(axis=0)[0].numpy(), trajectory.max(axis=0)[0].numpy()
-        margin_abs = (maxr - minr) * margin
-        x_range = [minr[0] - margin_abs[0], maxr[0] + margin_abs[0]]
-        y_range = [minr[1] - margin_abs[1], maxr[1] + margin_abs[1]]
-    else:
+
+    # fix dims and set range
+    x_range = None
+    y_range = None
+    traj_size = None
+    for name, traj in trajectory.items():
+        if traj.ndim == 3:
+            trajectory[name] = traj[..., 0].clone()
+
+        traj_size = traj.shape[0] if traj_size is None else max(traj_size, traj.shape[0])
+
+        if plot_range is None:
+            minr, maxr = traj.min(axis=0)[0].numpy(), traj.max(axis=0)[0].numpy()
+            margin_abs = (maxr - minr) * margin
+            new_x_range = [float(minr[0] - margin_abs[0]), float(maxr[0] + margin_abs[0])]
+            new_y_range = [float(minr[1] - margin_abs[1]), float(maxr[1] + margin_abs[1])]
+
+            if x_range is None or y_range is None:
+                x_range = new_x_range
+                y_range = new_y_range
+            else:
+                x_range = [min(x_range[0], new_x_range[0]), max(x_range[1], new_x_range[1])]
+                y_range = [min(y_range[0], new_y_range[0]), max(y_range[1], new_y_range[1])]
+
+    if plot_range is not None:
         minr, maxr = plot_range
         x_range = [minr[0], maxr[0]]
         y_range = [minr[1], maxr[1]]
@@ -108,12 +128,13 @@ def plot_progressive_trajectory(
         X, Y, Z = None, None, None
 
     # Generate frames
-    for i in range(1, len(trajectory) + 1):
+    for i in range(1, traj_size + 1):
         fig, ax = plt.subplots()
         if X is not None and Y is not None and Z is not None:
             c = ax.contourf(X, Y, Z, levels=50, cmap=cmap)
             plt.colorbar(c, ax=ax, label="Function value")
-        ax.plot(trajectory[:i, 0], trajectory[:i, 1], "o-", color="magenta", label="SGD run")
+        for name, traj in trajectory.items():
+            ax.plot(traj[:i, 0], traj[:i, 1], "o-", label=name)
         ax.set_xlabel(f"${params[0]}$")
         ax.set_ylabel(f"${params[1]}$")
         ax.set_xbound(x_range)

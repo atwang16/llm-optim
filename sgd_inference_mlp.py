@@ -52,11 +52,13 @@ def get_new_state(new_state_probs, cur_state, sample=False):
         while not (cond1 and cond2 and cond3):
             cond1 = sorted_probs[counter] != cur_state  # Skip the current state if
             cond2 = len(str(sorted_probs[counter])) == 3  # Skip if the state is not 3 digits
-            cond3 = sorted_probs[counter]>=150 and sorted_probs[counter]<=850
+            cond3 = sorted_probs[counter] >= 150 and sorted_probs[counter] <= 850
             counter += 1
         return sorted_probs[counter - 1]
     else:
         # Construct a distribution and sample from it
+        if np.isnan(new_state_probs).any():
+            breakpoint()
         new_state_probs[cur_state] = 0
         new_state_probs[:150] = 0
         new_state_probs[850:] = 0
@@ -73,6 +75,8 @@ def apply_kernel(kernels_dict, state_mat, model_state_dict, sample_flag=False):
             kernel = kernels_dict[f"{key}_{i}"]["kernel"]
             param_state_vec = state_mat[:, counter]
             # new_state_probs = kernel @ param_state_vec
+            if np.isnan(kernel).any():
+                breakpoint()
             new_state_probs = kernel[np.where(param_state_vec == 1)[0][0]]
             # print(np.where(param_state_vec == 1)[0][0])
             new_state = get_new_state(new_state_probs, np.argmax(param_state_vec), sample_flag)
@@ -92,7 +96,9 @@ def state_mat_to_param(state_mat, kernels_dict, model_state_dict):
             j1 = i // model_state_dict[key].shape[1]
             j2 = i % model_state_dict[key].shape[1]
             params_mat[key][j1][j2] = state_to_param(
-                np.argmax(state_mat[:, counter]), kernels_dict[f"{key}_{i}"]["init_min"], kernels_dict[f"{key}_{i}"]["init_max"]
+                np.argmax(state_mat[:, counter]),
+                kernels_dict[f"{key}_{i}"]["init_min"],
+                kernels_dict[f"{key}_{i}"]["init_max"],
             )
             counter += 1
     return params_mat
@@ -180,6 +186,7 @@ if __name__ == "__main__":
     os.makedirs(args.output_dir, exist_ok=True)
     # Plot accuracy
     import matplotlib.pyplot as plt
+
     plt.plot(accs)
     plt.xlabel("Step")
     plt.ylabel("Accuracy")

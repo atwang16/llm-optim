@@ -146,7 +146,7 @@ if __name__ == "__main__":
     state_mat = load_params_to_state_mat(init_state_dict, kernels_dict)
     trajectory = dict()
     for key in init_state_dict.keys():
-        trajectory[key] = []
+        trajectory[key] = [init_state_dict[key]]
 
     for i in tqdm(range(args.steps)):
         state_mat = apply_kernel(kernels_dict, state_mat, init_state_dict, args.sample)
